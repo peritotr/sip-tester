@@ -14,7 +14,7 @@ It plays **both ends** of your PBX, finds the point where it starts to struggle 
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux%20%7C%20Docker-555)
 ![Node](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white)
 
-[Türkçe](README.tr.md) · [Server setup guide](docs/server-setup.md) · [Changelog](CHANGELOG.md)
+[Türkçe](README.tr.md) · [Server setup guide](docs/server-setup.md) · [Changelog](CHANGELOG.md) · [The story behind it (Medium)](https://medium.com/@leventkaramanli/how-many-calls-can-your-pbx-really-handle-d1de3c77a933)
 
 </div>
 
@@ -32,6 +32,8 @@ Every PBX, SBC and SIP proxy eventually meets the same questions, usually on a b
 - How long does the PBX take to **route a call out to the trunk**, and does every call get there — exactly once?
 
 SIP Tester answers them with real SIP traffic: complete call flows with digest authentication (INVITE → 100 → 180 → 200 → ACK → hold → BYE), registrations, OPTIONS, and G.711 media on a sample of the calls. A **step test** climbs the rate until the server bends, and the report says, in plain language, *"the server is clean up to 250 CPS; post-dial delay rose at the 300 CPS step (p95 4 → 75 ms); RTP loss 0.64%"* — with the charts to back it up.
+
+The article *[How many calls can your PBX really handle?](https://medium.com/@leventkaramanli/how-many-calls-can-your-pbx-really-handle-d1de3c77a933)* walks through a real run against Asterisk 20 and how the end-to-end measurement works.
 
 It can sit on **both sides** of your PBX: phones (extensions) calling in, and a carrier trunk receiving the calls the PBX routes out. Each call carries a number the trunk side reads back, so the tool measures what neither side can see alone: **routing delay through the PBX, calls that never reach the trunk, and duplicates**.
 

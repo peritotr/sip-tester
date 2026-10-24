@@ -9,7 +9,7 @@
 Hafif RTP'li SIP arama üreteci, kayıt (REGISTER) fırtınası ve OPTIONS yük testi — karşı tarafta da dahili bir operatör trunk'ı.<br>
 PBX'inin **iki ucunda** birden durur, zorlanmaya başladığı noktayı bulur ve performans raporunu senin yerine yazar.
 
-[English](README.md) · [Sunucu kurulum rehberi](docs/server-setup.md) · [Değişiklikler](CHANGELOG.md)
+[English](README.md) · [Sunucu kurulum rehberi](docs/server-setup.md) · [Değişiklikler](CHANGELOG.md) · [Projenin hikâyesi (Medium, İngilizce)](https://medium.com/@leventkaramanli/how-many-calls-can-your-pbx-really-handle-d1de3c77a933)
 
 </div>
 
