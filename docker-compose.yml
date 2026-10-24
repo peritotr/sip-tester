@@ -1,0 +1,20 @@
+services:
+  sip-tester:
+    # Use the published image, or replace with `build: .` to build from source
+    image: ghcr.io/peritotr/sip-tester:latest
+    container_name: sip-tester
+    restart: unless-stopped
+    # Host networking: SIP and RTP use many UDP ports chosen at run time, and Docker's NAT layer
+    # would rewrite addresses and add latency. Linux only.
+    network_mode: host
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data
+    ulimits:
+      nofile: { soft: 65535, hard: 65535 }
+    sysctls: {}
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }

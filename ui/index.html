@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+<title>SIP Tester</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="drag"></div>
+<aside class="side">
+  <div class="brand"><span class="dot" id="stateDot"></span><b>SIP Tester</b><span id="stateText" class="muted" data-i18n>disconnected</span>
+    <select id="lang" class="lang" title="Language / Dil"><option value="en">EN</option><option value="tr">TR</option></select></div>
+
+  <section>
+    <h3 data-i18n>Server</h3>
+    <div class="row">
+      <select id="profile"><option value="" data-i18n>— Profile —</option></select>
+      <button id="saveProfile" title="Save profile" data-i18n data-i18n-attr="title">Save</button>
+      <button id="delProfile" class="ghost" title="Delete profile" data-i18n data-i18n-attr="title">Delete</button>
+    </div>
+    <div class="row" id="nameRow" style="display:none"><input id="profileName" placeholder="Profile name" data-i18n-attr="placeholder"><button id="nameOk" class="primary">OK</button><button id="nameCancel" class="ghost" data-i18n>Cancel</button></div>
+    <label title="SIP server, PBX or SBC address. All requests are sent here (outbound proxy)." data-i18n-attr="title"><span>Host</span> <input id="host" placeholder="pbx.example.com" spellcheck="false"></label>
+    <div class="grid2">
+      <label><span>Port</span> <input id="port" type="number" value="5060"></label>
+      <label><span>Transport</span> <select id="transport"><option value="udp">UDP</option><option value="tcp">TCP</option></select></label>
+    </div>
+    <label title="Domain used in SIP URIs (From, To, Request-URI). Defaults to the host." data-i18n-attr="title"><span data-i18n>Domain</span> <input id="domain" placeholder="(host)" data-i18n-attr="placeholder" spellcheck="false"></label>
+    <div class="grid2">
+      <label><span data-i18n>Username / extension</span> <input id="user" spellcheck="false"></label>
+      <label><span data-i18n>Password</span> <input id="password" type="password"></label>
+    </div>
+    <details>
+      <summary data-i18n>Advanced</summary>
+      <div class="grid2">
+        <label title="Digest auth username when it differs from the extension" data-i18n-attr="title"><span data-i18n>Auth username</span> <input id="authUser" placeholder="(username)" data-i18n-attr="placeholder" spellcheck="false"></label>
+        <label><span data-i18n>Display name</span> <input id="displayName" spellcheck="false"></label>
+        <label title="0 = any free port" data-i18n-attr="title"><span data-i18n>Local SIP port</span> <input id="localPort" type="number" value="0" min="0"></label>
+        <label title="First RTP port; 0 = any free port. Open this range on the firewall if the server sends media back." data-i18n-attr="title"><span data-i18n>RTP start port</span> <input id="rtpPort" type="number" value="0" min="0"></label>
+        <label title="IP written into Via, Contact and SDP. Leave empty to detect it; set the public IP behind NAT." data-i18n-attr="title"><span data-i18n>Contact IP</span> <input id="contactIp" placeholder="(auto)" data-i18n-attr="placeholder" spellcheck="false"></label>
+        <label><span data-i18n>Register expiry (s)</span> <input id="expires" type="number" value="300" min="0"></label>
+        <label title="Transaction timeout (Timer B/F); 32 s in RFC 3261" data-i18n-attr="title"><span data-i18n>Response timeout (s)</span> <input id="timeout" type="number" value="32" min="1"></label>
+        <label title="Retransmission base timer for UDP" data-i18n-attr="title"><span>T1 (ms)</span> <input id="t1" type="number" value="500" min="50"></label>
+      </div>
+    </details>
+    <div class="row">
+      <button id="connect" class="primary" data-i18n>Connect</button>
+      <button id="disconnect" data-i18n>Disconnect</button>
+      <button id="ping" class="ghost" title="Send OPTIONS" data-i18n-attr="title">OPTIONS</button>
+    </div>
+    <p id="pingRes" class="small mono muted"></p>
+  </section>
+
+  <section>
+    <h3 data-i18n>Registration</h3>
+    <div class="row">
+      <button id="register" data-i18n>Register</button>
+      <button id="unregister" class="ghost" data-i18n>Unregister</button>
+    </div>
+    <p id="regState" class="small muted" data-i18n>Not registered</p>
+    <p class="muted small" data-i18n>Registration is optional for test calls: most PBXes authenticate each call with the username and password above.</p>
+  </section>
+</aside>
+
+<main>
+  <div class="modes">
+    <button data-mode="single" class="on" data-i18n>Single test</button>
+    <button data-mode="load" data-i18n>Load test</button>
+    <button data-mode="reports"><span data-i18n>Reports</span> <span id="cReports" class="cnt">0</span></button>
+  </div>
+
+  <div class="view on" id="view-single">
+  <section class="compose">
+    <div class="opts">
+      <label class="grow" title="Number or SIP URI. X = random digit; separate several with commas." data-i18n-attr="title"><span data-i18n>Destination</span> <input id="dst" placeholder="600" spellcheck="false" style="width:220px"></label>
+      <label title="0 = until you hang up" data-i18n-attr="title"><span data-i18n>Duration (s)</span> <input id="duration" type="number" value="10" min="0" class="num"></label>
+      <label class="check" title="Send 20 ms G.711 packets and measure what comes back (loss, jitter; round trip on an echo extension)" data-i18n-attr="title"><input id="rtp" type="checkbox" checked> <span>RTP</span></label>
+      <label><span data-i18n>Codec</span> <select id="codec"><option value="PCMU">G.711 µ (PCMU)</option><option value="PCMA">G.711 A (PCMA)</option></select></label>
+      <label><span data-i18n>Count</span> <input id="count" type="number" value="1" min="1" class="num"></label>
+      <label><span>CPS</span> <input id="cps" type="number" value="1" min="0.1" step="0.1" class="num"></label>
+      <span class="spacer"></span>
+      <span id="progress" class="muted small"></span>
+      <button id="hangupAll" class="ghost" disabled data-i18n>Hang up all</button>
+      <button id="call" class="primary" disabled data-i18n>Call</button>
+    </div>
+  </section>
+
+  <nav class="tabs">
+    <button data-tab="calls" class="on"><span data-i18n>Calls</span> <span id="cCalls" class="cnt">0</span></button>
+    <button data-tab="log"><span data-i18n>SIP log</span> <span id="cLog" class="cnt">0</span></button>
+    <span class="spacer"></span>
+    <span id="logFilter" class="small" style="display:none"><span data-i18n>Showing one call</span> <button id="clearFilter" class="ghost small" data-i18n>Show all</button></span>
+    <label class="check small"><input type="checkbox" id="hideOptions" checked> <span data-i18n>Hide OPTIONS</span></label>
+    <button id="exportLog" class="ghost small" data-i18n>Export</button>
+    <button id="clear" class="ghost small" data-i18n>Clear</button>
+  </nav>
+
+  <div class="panes">
+    <div class="pane on" id="pane-calls">
+      <table><thead><tr><th>#</th><th data-i18n>Time</th><th data-i18n>Destination</th><th data-i18n>Status</th><th title="INVITE → 100 Trying" data-i18n-attr="title">100 ms</th><th title="Post-dial delay: INVITE → first 180/183 (or 200)" data-i18n-attr="title">PDD ms</th><th title="INVITE → 200 OK" data-i18n-attr="title" data-i18n>Answer ms</th><th data-i18n>Duration</th><th data-i18n>End</th><th>RTP tx / rx</th><th data-i18n>Loss</th><th>Jitter</th><th title="Round trip of our own packets coming back from an echo extension" data-i18n-attr="title">RTT</th><th></th></tr></thead><tbody id="callBody"></tbody></table>
+      <p class="muted small" style="padding:10px 16px" id="callHint" data-i18n>Click a call to see its SIP messages. Echo test extensions (Asterisk: Echo()) give the most complete media measurement.</p>
+    </div>
+    <div class="pane" id="pane-log"><div id="logList" class="log"></div></div>
+  </div>
+  </div>
+
+  <div class="view" id="view-load">
+    <section class="compose">
+      <div class="lrow">
+        <label title="What the test generates" data-i18n-attr="title"><span data-i18n>Scenario</span> <select id="lScenario"><option value="call" data-i18n>Calls (INVITE)</option><option value="register" data-i18n>Registrations (REGISTER)</option><option value="options">OPTIONS</option></select></label>
+        <label title="Shown in the reports list, e.g. 'v2.3 — 500 CPS target'" data-i18n-attr="title"><span data-i18n>Test name</span> <input id="lName" placeholder="(optional)" data-i18n-attr="placeholder" spellcheck="false"></label>
+        <label class="grow sc-call" title="Number or SIP URI. X = random digit; separate several with commas." data-i18n-attr="title"><span data-i18n>Destination (X = random digit)</span> <input id="lDst" value="600" spellcheck="false"></label>
+        <label class="grow" title="Accounts used in rotation, e.g. 1000-1499 or 1000,1001. Empty = the account from the Server section." data-i18n-attr="title"><span id="lUsersLbl" data-i18n>Accounts (rotate)</span> <input id="lUsers" placeholder="1000-1099" spellcheck="false"></label>
+        <label title="Password for each account; {user} is replaced with the username, e.g. pw{user}. Empty = the password from the Server section." data-i18n-attr="title"><span data-i18n>Password template</span> <input id="lPassTpl" placeholder="{user}" spellcheck="false"></label>
+      </div>
+      <div class="lgrid">
+        <label><span id="lRateLbl" data-i18n>Target CPS</span> <input id="lRate" type="number" value="10" min="0.1" step="0.1"></label>
+        <label title="Step: climbs from the start rate to the target in steps; the best way to find the load at which latency starts" data-i18n-attr="title"><span data-i18n>Test type</span> <select id="lMode"><option value="duration" data-i18n>Constant — duration</option><option value="total" data-i18n>Constant — count</option><option value="steps" data-i18n>Step</option></select></label>
+        <label class="ls-fixed"><span id="lAmountLbl" data-i18n>Duration (s)</span> <input id="lAmount" type="number" value="60" min="1"></label>
+        <label class="ls-step" title="Rate of the first step" data-i18n-attr="title"><span data-i18n>Start rate</span> <input id="lStepStart" type="number" value="10" min="0.1"></label>
+        <label class="ls-step" title="Rate added at each step" data-i18n-attr="title"><span data-i18n>Increment</span> <input id="lStepInc" type="number" value="10" min="0.1"></label>
+        <label class="ls-step" title="Duration of each step" data-i18n-attr="title"><span data-i18n>Step (s)</span> <input id="lStepDur" type="number" value="60" min="5"></label>
+        <label title="Time to ramp up to the target rate" data-i18n-attr="title"><span>Ramp-up (s)</span> <input id="lRamp" type="number" value="5" min="0"></label>
+        <label title="Calls: maximum simultaneous calls. Registrations / OPTIONS: maximum requests waiting for a response." data-i18n-attr="title"><span id="lConcLbl" data-i18n>Max concurrent calls</span> <input id="lConcurrent" type="number" value="500" min="1"></label>
+        <label class="sc-call" title="Each answered call is held for a random time in this range, then hung up with BYE" data-i18n-attr="title"><span data-i18n>Hold min (s)</span> <input id="lHoldMin" type="number" value="10" min="0"></label>
+        <label class="sc-call"><span data-i18n>Hold max (s)</span> <input id="lHoldMax" type="number" value="20" min="0"></label>
+        <label class="sc-call" title="Calls ringing longer than this are cancelled and counted as unanswered" data-i18n-attr="title"><span data-i18n>Max ring (s)</span> <input id="lMaxRing" type="number" value="30" min="1"></label>
+        <label class="sc-register"><span data-i18n>Expiry (s)</span> <input id="lExpires" type="number" value="300" min="0"></label>
+        <label title="UDP: local sockets (ports). TCP: connections. Some servers spread load by source port." data-i18n-attr="title"><span data-i18n>Sockets / connections</span> <input id="lConnections" type="number" value="1" min="1" max="64"></label>
+        <label title="No final response within this time counts as a timeout" data-i18n-attr="title"><span data-i18n>Response limit (s)</span> <input id="lRespTimeout" type="number" value="32" min="1"></label>
+        <label class="sc-call sc-rtp" title="Media is sent on at most this many calls at the same time; the other calls carry signalling only" data-i18n-attr="title"><span data-i18n>RTP calls (max)</span> <input id="lRtpMax" type="number" value="100" min="1" max="5000"></label>
+        <label class="sc-call sc-rtp"><span data-i18n>Codec</span> <select id="lCodec"><option value="PCMU">PCMU</option><option value="PCMA">PCMA</option></select></label>
+      </div>
+      <div class="opts">
+        <label class="check sc-call" title="Send 20 ms G.711 packets on up to 'RTP calls' calls and measure loss, jitter and echo round trip" data-i18n-attr="title"><input id="lRtp" type="checkbox" checked> <span data-i18n>Send RTP (light)</span></label>
+        <label class="check" title="On 503 Service Unavailable, lower the rate and recover over 3 s (calls are not retried)" data-i18n-attr="title"><input id="lBackoff" type="checkbox" checked> <span data-i18n>Slow down on 503</span></label>
+        <label class="check" title="Send credentials with the next request using the last nonce, saving a 401/407 round trip (like a phone re-registering). Off = every request is challenged." data-i18n-attr="title"><input id="lReuseNonce" type="checkbox"> <span data-i18n>Reuse nonce</span></label>
+        <details class="crit"><summary data-i18n>Acceptance criteria</summary>
+          <div class="critgrid">
+            <label><span id="cP95Lbl" data-i18n>PDD p95 ≤ (ms)</span> <input id="cP95" type="number" value="500" min="0"></label>
+            <label><span id="cP99Lbl" data-i18n>PDD p99 ≤ (ms)</span> <input id="cP99" type="number" placeholder="—" min="0"></label>
+            <label class="sc-call"><span data-i18n>ASR ≥ %</span> <input id="cAsr" type="number" value="99" min="0" max="100" step="0.1"></label>
+            <label><span data-i18n>Failures ≤ %</span> <input id="cErr" type="number" value="1" min="0" step="0.01"></label>
+            <label class="sc-call"><span data-i18n>RTP loss ≤ %</span> <input id="cLoss" type="number" value="1" min="0" step="0.01"></label>
+            <label title="Defaults to the target rate when empty" data-i18n-attr="title"><span data-i18n>Min rate</span> <input id="cMinRate" type="number" placeholder="target" data-i18n-attr="placeholder" min="0"></label>
+          </div>
+        </details>
+        <span class="spacer"></span>
+        <span id="lPhase" class="muted"></span>
+        <button id="lReport" class="ghost" style="display:none" data-i18n>Open report</button>
+        <button id="lCsv" class="ghost" disabled data-i18n>Export CSV</button>
+        <button id="lStop" class="ghost" disabled data-i18n>Stop</button>
+        <button id="lStart" class="primary" data-i18n>Start test</button>
+      </div>
+    </section>
+    <div class="lbody">
+      <div class="kpis">
+        <div class="kpi big"><span id="kSentLbl" data-i18n>Call attempts</span><b id="kSentTps">—</b><i id="kU1">CPS</i></div>
+        <div class="kpi big"><span id="kOkLbl" data-i18n>Answered</span><b id="kOkTps">—</b><i id="kU2">CPS</i></div>
+        <div class="kpi big"><span id="kActLbl" data-i18n>Active calls</span><b id="kActive">—</b><i id="kActMax"></i></div>
+        <div class="kpi big"><span id="kLatLbl" data-i18n>PDD p50 / p95 / p99</span><b id="kLat">—</b><i>ms</i></div>
+        <div class="kpi"><span data-i18n>Attempts</span><b id="kSent">0</b></div>
+        <div class="kpi"><span id="kOkLbl2" data-i18n>Answered</span><b id="kOk" class="ok">0</b></div>
+        <div class="kpi"><span data-i18n>Failed</span><b id="kErr" class="err">0</b></div>
+        <div class="kpi"><span title="503 Service Unavailable" data-i18n-attr="title">503</span><b id="kThr" class="warn">0</b></div>
+        <div class="kpi"><span data-i18n>Timeouts</span><b id="kTo">0</b></div>
+        <div class="kpi"><span title="Requests sent again because no response came in time (UDP)" data-i18n-attr="title" data-i18n>Retransmissions</span><b id="kRetr">0</b></div>
+        <div class="kpi sc-call"><span title="Answer-seizure ratio: answered / attempts" data-i18n-attr="title">ASR</span><b id="kAsr">—</b></div>
+        <div class="kpi sc-call"><span data-i18n>Completed · dropped</span><b id="kBye">0</b></div>
+        <div class="kpi sc-nocall"><span data-i18n>Auth challenges</span><b id="kCh">0</b></div>
+        <div class="kpi sc-nocall"><span data-i18n>Average rate</span><b id="kAvg">—</b></div>
+      </div>
+      <div class="kpis rtpk sc-call" id="rtpPanel">
+        <div class="kpi"><span data-i18n>RTP packets tx / rx</span><b id="rPkts">—</b></div>
+        <div class="kpi"><span data-i18n>RTP loss</span><b id="rLoss">—</b></div>
+        <div class="kpi"><span data-i18n>Jitter p50 / p95</span><b id="rJit">—</b></div>
+        <div class="kpi"><span title="Round trip of our own packets from an echo extension" data-i18n-attr="title" data-i18n>Echo RTT p50 / p95</span><b id="rRtt">—</b></div>
+      </div>
+      <div class="charts">
+        <div class="chart"><div class="ctitle"><span id="cRateTitle" data-i18n>Calls per second</span> <span class="legend" id="lgTps"></span></div><canvas id="cTps"></canvas></div>
+        <div class="chart"><div class="ctitle"><span id="cLatTitle" data-i18n>Setup latency (ms)</span> <span class="legend" id="lgLat"></span></div><canvas id="cLat"></canvas></div>
+        <div class="chart"><div class="ctitle"><span id="cActTitle" data-i18n>Active calls</span> <span class="legend" id="lgAct"></span></div><canvas id="cAct"></canvas></div>
+        <div class="chart sc-call"><div class="ctitle"><span data-i18n>Media</span> <span class="legend" id="lgRtp"></span></div><canvas id="cRtp"></canvas></div>
+      </div>
+      <div class="breakdown">
+        <div><h3 data-i18n>Failure codes</h3><table><tbody id="tErrs"><tr><td class="muted">—</td></tr></tbody></table></div>
+        <div><h3 data-i18n>Timing</h3><table><tbody id="tTiming"><tr><td class="muted">—</td></tr></tbody></table></div>
+        <div><h3 data-i18n>Notes</h3><p class="muted small" id="lNotes" data-i18n>Connection details come from the Server section on the left. Calls use the extension to call: an echo test or IVR that answers automatically.</p></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="view" id="view-reports">
+    <div class="rbar">
+      <span class="muted small" data-i18n>A report is saved automatically when each load test finishes. Click a row to open it.</span>
+      <span class="spacer"></span>
+      <button id="rRefresh" class="ghost small" data-i18n>Refresh</button>
+    </div>
+    <div class="rlist">
+      <table>
+        <thead><tr><th data-i18n>Date</th><th data-i18n>Name</th><th data-i18n>Scenario</th><th data-i18n>Type</th><th data-i18n>Target</th><th data-i18n>Capacity</th><th data-i18n>Latency onset</th><th>p95</th><th data-i18n>Result</th><th data-i18n>Issues</th><th></th></tr></thead>
+        <tbody id="rBody"><tr><td colspan="11" class="muted" data-i18n>No reports yet.</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+<script src="i18n.js"></script>
+<script src="web-api.js"></script>
+<script src="renderer.js"></script>
+<script src="load.js"></script>
+<script src="reports-ui.js"></script>
+</body>
+</html>

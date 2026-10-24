@@ -1,0 +1,25 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+contextBridge.exposeInMainWorld('api', {
+  connect: cfg => ipcRenderer.invoke('sip:connect', cfg),
+  disconnect: () => ipcRenderer.invoke('sip:disconnect'),
+  options: () => ipcRenderer.invoke('sip:options'),
+  register: exp => ipcRenderer.invoke('sip:register', exp),
+  call: m => ipcRenderer.invoke('sip:call', m),
+  hangup: id => ipcRenderer.invoke('sip:hangup', id),
+  hangupAll: () => ipcRenderer.invoke('sip:hangupAll'),
+  loadStart: (cfg, test) => ipcRenderer.invoke('load:start', cfg, test),
+  loadStop: () => ipcRenderer.invoke('load:stop'),
+  loadKill: () => ipcRenderer.invoke('load:kill'),
+  loadProfiles: () => ipcRenderer.invoke('profiles:load'),
+  saveProfiles: l => ipcRenderer.invoke('profiles:save', l),
+  saveFile: (text, name) => ipcRenderer.invoke('file:save', text, name),
+  exportLog: t => ipcRenderer.invoke('file:save', t, `sip-log-${new Date().toISOString().slice(0, 19).replace(/:/g, '')}.txt`),
+  reportsList: () => ipcRenderer.invoke('reports:list'),
+  reportGet: id => ipcRenderer.invoke('reports:get', id),
+  reportDelete: id => ipcRenderer.invoke('reports:delete', id),
+  reportRename: (id, name) => ipcRenderer.invoke('reports:rename', id, name),
+  reportOpen: id => ipcRenderer.invoke('report:open', id),
+  reportPdf: name => ipcRenderer.invoke('report:pdf', name),
+  on: (ch, fn) => ipcRenderer.on(ch, (_, d) => fn(d)),
+});
