@@ -36,7 +36,7 @@
     const U = call ? 'CPS' : 'RPS';
     const all = (rep.series || []).filter(r => r && r.t != null);
     const active = all.filter(r => r.sentTps > 0 || r.target > 0);
-    const out = { scenario, unit: U, findings: [], criteria: [], steps: null, curve: [], baseline: null, onset: null, saturation: null, capacity: null, steady: null };
+    const out = { scenario, unit: U, findings: [], criteria: [], steps: null, curve: [], baseline: null, onset: null, e2eOnset: null, saturation: null, capacity: null, steady: null };
     if (!active.length) { out.findings.push({ level: 'bad', text: t('Nothing was sent during the test; there is no data to analyse.') }); return out; }
     const target = Number(test.rate || test.tps) || maxOf(active.map(r => r.target)) || 0;
     // Answers lag attempts by the ring time: compare the answered rate with the target after that delay
@@ -48,7 +48,8 @@
     const firstN = lowLoad.slice(0, Math.max(5, Math.ceil(lowLoad.length * 0.15)));
     const baseRows = test.steps ? lowLoad.filter(r => r.step === 1).slice(2) : firstN.slice(1);
     const baseSrc = baseRows.length >= 3 ? baseRows : firstN;
-    const base = { p50: median(baseSrc.map(r => r.p50)), p95: median(baseSrc.map(r => r.p95)), p99: median(baseSrc.map(r => r.p99)) };
+    const hasE2e = !!T.e2e && active.some(r => r.e2eP95 != null);
+    const base = { p50: median(baseSrc.map(r => r.p50)), p95: median(baseSrc.map(r => r.p95)), p99: median(baseSrc.map(r => r.p99)), e2eP95: hasE2e ? median(baseSrc.map(r => r.e2eP95)) : null };
     out.baseline = base;
     const thr = b => b == null ? null : Math.max(b * 2, b + 20);
     const p95Lim = crit.p95Max ? Math.min(thr(base.p95) ?? Infinity, Number(crit.p95Max)) : thr(base.p95);
@@ -58,6 +59,13 @@
     if (p95Lim != null) {
       const i = firstSustained(scan, r => r.p95 != null && r.p95 > p95Lim, 3);
       if (i >= 0) { const r = scan[i], win = scan.slice(Math.max(0, i - 3), i); out.onset = { t: r.t, tps: median(win.map(x => x.sentTps)) ?? r.sentTps, target: r.target, p95: r.p95, base: base.p95, limit: p95Lim, step: r.step }; }
+    }
+
+    // PBX routing delay (client INVITE → vendor INVITE) onset
+    if (hasE2e && base.e2eP95 != null) {
+      const lim = crit.e2eP95Max ? Math.min(thr(base.e2eP95), Number(crit.e2eP95Max)) : thr(base.e2eP95);
+      const i = firstSustained(scan, r => r.e2eP95 != null && r.e2eP95 > lim, 3);
+      if (i >= 0) { const r = scan[i]; out.e2eOnset = { t: r.t, tps: r.sentTps, p95: r.e2eP95, base: base.e2eP95, limit: lim, step: r.step }; }
     }
 
     // ---------- Saturation: successful rate stays below 90% of a flat target ----------
@@ -115,7 +123,7 @@
         else if (p95 != null && p95Lim != null && p95 > p95Lim) status = 'latency';
         else if (thrN > 0 || errN > 0 || retrN > 0) status = 'warning';
         return { step: k + 1, target: tgt, sent, ok, p50: median(settled.map(r => r.p50)), p95, p99, active: median(settled.map(r => r.inflight)), thr: thrN, err: errN, retr: retrN, windowFull: wf,
-          loss: call ? mean(settled.map(r => r.rtpLoss)) : null, status };
+          loss: call ? mean(settled.map(r => r.rtpLoss)) : null, e2e: hasE2e ? median(settled.map(r => r.e2eP95)) : null, status };
       });
       const knee = out.steps.find(s => s.status === 'latency' || s.status === 'saturated');
       const lastGood = [...out.steps].reverse().find(s => s.status === 'ok' && (!knee || s.step < knee.step));
@@ -140,6 +148,9 @@
     if (crit.p99Max) add(`${LAT} p99`, (L.p99 ?? 0) <= crit.p99Max, `${r1(L.p99)} ms`, `≤ ${crit.p99Max} ms`);
     if (call && crit.asrMin != null && crit.asrMin !== '') add('ASR', (T.asr ?? 0) >= crit.asrMin, `${pc(T.asr)}%`, `≥ ${crit.asrMin}%`);
     if (crit.errMaxPct != null && crit.errMaxPct !== '') add(t('Failure rate'), errRate <= crit.errMaxPct, `${errRate.toFixed(3)}%`, `≤ ${crit.errMaxPct}%`);
+    const E = T.e2e, missPct = E && E.sent ? E.missing / E.sent * 100 : null;
+    if (E && crit.e2eP95Max && E.lat && E.lat.n) add(t('End-to-end routing p95'), (E.lat.p95 ?? 0) <= crit.e2eP95Max, `${r1(E.lat.p95)} ms`, `≤ ${crit.e2eP95Max} ms`);
+    if (E && crit.e2eMissMaxPct != null && crit.e2eMissMaxPct !== '') add(t('Not reached the vendor'), missPct <= crit.e2eMissMaxPct, `${missPct.toFixed(3)}%`, `≤ ${crit.e2eMissMaxPct}%`);
     if (call && crit.rtpLossMaxPct != null && crit.rtpLossMaxPct !== '' && T.rtpLossPct != null) add(t('RTP loss'), T.rtpLossPct <= crit.rtpLossMaxPct, `${pc(T.rtpLossPct)}%`, `≤ ${crit.rtpLossMaxPct}%`);
     if (crit.minTps) { const v = out.steady ? out.steady.ok : best.ok; add(t('Sustained rate'), v >= crit.minTps * 0.98, `${r0(v)} ${U}`, `≥ ${r0(crit.minTps)} ${U}`); }
     out.verdict = out.criteria.length ? (out.criteria.every(c => c.ok) ? 'pass' : 'fail') : null;
@@ -168,9 +179,10 @@
     if (out.onset) {
       F('warn', t('{what} started rising at {time}, at about {tps} {unit}: p95 went from a {base} ms baseline to {p95} ms', { what: call ? t('Post-dial delay') : t('Response time'), time: mmss(out.onset.t), tps: r0(out.onset.tps), unit: U, base: r1(out.onset.base), p95: r1(out.onset.p95) })
         + (out.onset.step ? ' ' + t('(step {n})', { n: out.onset.step }) : '') + '.');
-    } else F('ok', t('{what} stayed at its baseline throughout the test (p95 ≈ {p95} ms).', { what: call ? t('Post-dial delay') : t('Response time'), p95: r1(base.p95) }));
+    } else if (base.p95 != null) F('ok', t('{what} stayed at its baseline throughout the test (p95 ≈ {p95} ms).', { what: call ? t('Post-dial delay') : t('Response time'), p95: r1(base.p95) }));
     if (out.saturation) F('bad', t('At {time} the successful rate fell below the target ({ok} / {target} {unit}). Likely cause: {cause}.', { time: mmss(out.saturation.t), ok: r0(out.saturation.ok), target: r0(out.saturation.target), unit: U, cause: out.saturation.causeText }));
-    else if (!out.steps) F('ok', t('The target rate was reached and held (best 10 s average {tps} {unit}).', { tps: r0(best.ok), unit: U }));
+    else if (!out.steps && best.ok >= target * 0.9) F('ok', t('The target rate was reached and held (best 10 s average {tps} {unit}).', { tps: r0(best.ok), unit: U }));
+    else if (!out.steps) F('bad', t('The target rate was not reached (best 10 s average {tps} of {target} {unit}).', { tps: r0(best.ok), target: r0(target), unit: U }));
     if (out.steady && out.steady.minutes >= 2 && out.steady.driftPerMin != null) {
       const d = out.steady.driftPerMin, rel = out.steady.p95First ? (out.steady.p95Last - out.steady.p95First) / out.steady.p95First : 0;
       if (d > 0 && rel > 0.5) F('warn', t('Latency grows over time under steady load: p95 rose ~{d} ms per minute ({from} → {to} ms). This may point to a growing queue or a resource leak.', { d: r1(d), from: r1(out.steady.p95First), to: r1(out.steady.p95Last) }));
@@ -188,6 +200,22 @@
         if (T.noMedia) F('warn', t('{n} answered calls received no audio at all. Expected if the extension does not send media; otherwise check NAT, the firewall (RTP ports) or media relay capacity.', { n: r0(T.noMedia) }));
         else if (!T.rtpRx) F('warn', t('No RTP came back on any call. Use an echo or announcement extension to measure media.'));
       }
+    }
+    if (E) {
+      if (!E.reached) F('bad', t('No call reached the vendor. Check that your PBX routes the destination prefix to the built-in vendor (trunk address, port, authentication).'));
+      else {
+        F(E.missing ? 'bad' : 'ok', E.missing
+          ? t('{n} of {sent} calls ({pct}%) never reached the vendor: they were rejected or lost inside the PBX.', { n: r0(E.missing), sent: r0(E.sent), pct: pc(missPct) })
+          : t('All {n} calls reached the vendor through the PBX.', { n: r0(E.sent) }));
+        if (E.lat && E.lat.n) F('ok', t('PBX routing delay (client INVITE → vendor INVITE): p50 {p50} ms, p95 {p95} ms, p99 {p99} ms.', { p50: r1(E.lat.p50), p95: r1(E.lat.p95), p99: r1(E.lat.p99) }));
+        if (out.e2eOnset) F('warn', t('PBX routing delay rose at {time}, at about {tps} {unit} (p95 {base} → {p95} ms): the PBX takes longer to send calls to the trunk.', { time: mmss(out.e2eOnset.t), tps: r0(out.e2eOnset.tps), unit: U, base: r1(out.e2eOnset.base), p95: r1(out.e2eOnset.p95) }));
+      }
+      // Where did the failures happen: inside the PBX or after the call reached the trunk?
+      const fails = (T.err || 0) - (T.noAnswer || 0);
+      if (E.reached && fails > 0 && !E.missing) F('warn', t('Every call reached the vendor, so the {n} failures happened on the trunk side (vendor answers passed back by the PBX), not inside the PBX.', { n: r0(fails) }));
+      else if (E.reached && fails > 0 && E.missing >= fails * 0.9) F('warn', t('The failed calls never reached the vendor: the PBX itself rejected or lost them.'));
+      if (E.dup) F('bad', t('{n} calls reached the vendor more than once (PBX retry or failover).', { n: r0(E.dup) }));
+      if (E.unmatched) F('warn', t('{n} calls arrived at the vendor with a number the test did not send. The PBX may rewrite the dialled number, or other traffic reaches the vendor.', { n: r0(E.unmatched) }));
     }
     if (T.throttled) F('warn', t('{n} × 503 Service Unavailable received (first at {time}).', { n: r0(T.throttled), time: mmss((ev.find(e => e.type === 'throttle') || {}).t || 0) }));
     if (T.timeouts) F('bad', t('{n} requests got no final response (timeout).', { n: r0(T.timeouts) }));
@@ -207,7 +235,7 @@
     return {
       verdict: a.verdict, capacity: a.capacity ? Math.round(a.capacity.ok * 10) / 10 : null, unit: a.unit, scenario: a.scenario,
       onsetTps: a.onset ? Math.round(a.onset.tps * 10) / 10 : null, kneeTps: a.knee ? a.knee.target : null,
-      p95: T.lat && T.lat.p95, sent: T.sent, err: T.err, asr: T.asr,
+      p95: T.lat && T.lat.p95, sent: T.sent, err: T.err, asr: T.asr, e2eP95: T.e2e && T.e2e.lat ? T.e2e.lat.p95 : null,
       issues: a.findings.filter(f => f.level !== 'ok').length,
     };
   }

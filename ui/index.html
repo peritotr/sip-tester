@@ -60,6 +60,34 @@
     <p id="regState" class="small muted" data-i18n>Not registered</p>
     <p class="muted small" data-i18n>Registration is optional for test calls: most PBXes authenticate each call with the username and password above.</p>
   </section>
+
+  <section>
+    <h3 data-i18n>Vendor (built-in trunk)</h3>
+    <p class="muted small" data-i18n>A fake carrier your PBX sends calls to over a trunk. It answers, echoes the audio back and can act slow or full on purpose. Used for end-to-end measurement.</p>
+    <label><span data-i18n>Listen on</span> <select id="mockHost"><option value="127.0.0.1" data-i18n>This machine only (127.0.0.1)</option><option value="0.0.0.0" data-i18n>Network (0.0.0.0)</option></select></label>
+    <div class="grid2">
+      <label title="UDP and TCP on the same port" data-i18n-attr="title"><span>Port</span> <input id="mockPort" type="number" value="5080"></label>
+      <label title="Sends 180 Ringing after this delay" data-i18n-attr="title"><span data-i18n>Ring after (ms)</span> <input id="mockRing" type="number" value="0" min="0"></label>
+      <label title="Sends 200 OK after this delay" data-i18n-attr="title"><span data-i18n>Answer after (ms)</span> <input id="mockAnswer" type="number" value="100" min="0"></label>
+      <label title="The vendor hangs up answered calls after this time (0 = the caller hangs up)" data-i18n-attr="title"><span data-i18n>Hang up after (s)</span> <input id="mockHangup" type="number" value="0" min="0"></label>
+      <label title="Above this rate new calls get 503 (0 = unlimited)" data-i18n-attr="title"><span data-i18n>CPS limit</span> <input id="mockMaxCps" type="number" value="0" min="0"></label>
+      <label title="Calls beyond this many simultaneous calls get 503, like a full trunk (0 = unlimited)" data-i18n-attr="title"><span data-i18n>Channel limit</span> <input id="mockChannels" type="number" value="0" min="0"></label>
+      <label title="Calls processed per second; the rest wait in a queue and the answer slows down (0 = unlimited). Simulates a slow carrier." data-i18n-attr="title"><span data-i18n>Processing capacity (CPS)</span> <input id="mockCapacity" type="number" value="0" min="0"></label>
+      <label><span data-i18n>Busy %</span> <input id="mockBusy" type="number" value="0" min="0" max="100"></label>
+      <label><span data-i18n>Failure %</span> <input id="mockFail" type="number" value="0" min="0" max="100"></label>
+      <label><span data-i18n>Failure code</span> <select id="mockFailCode"><option value="480">480</option><option value="404">404</option><option value="500">500</option><option value="503">503</option><option value="603">603</option></select></label>
+      <label title="Leave empty to accept calls from any address without authentication (IP trunk)" data-i18n-attr="title"><span data-i18n>Trunk username</span> <input id="mockUser" placeholder="(any)" data-i18n-attr="placeholder" spellcheck="false"></label>
+      <label><span data-i18n>Trunk password</span> <input id="mockPassword" type="password" placeholder="(none)" data-i18n-attr="placeholder"></label>
+    </div>
+    <div class="row">
+      <label class="check" title="Send every RTP packet back (echo). Off = the vendor stays silent." data-i18n-attr="title"><input id="mockEcho" type="checkbox" checked> <span data-i18n>Echo RTP</span></label>
+      <span class="spacer"></span>
+      <button id="mockToggle" data-i18n>Start</button>
+    </div>
+    <p id="mockAddr" class="small mono"></p>
+    <p id="mockStats" class="muted small mono"></p>
+    <p id="mockLog" class="small mocklog"></p>
+  </section>
 </aside>
 
 <main>
@@ -133,6 +161,7 @@
       </div>
       <div class="opts">
         <label class="check sc-call" title="Send 20 ms G.711 packets on up to 'RTP calls' calls and measure loss, jitter and echo round trip" data-i18n-attr="title"><input id="lRtp" type="checkbox" checked> <span data-i18n>Send RTP (light)</span></label>
+        <label class="check sc-call" title="The trailing X's of the destination carry a call number; the built-in vendor reads it back when your PBX routes the call to it. Measures PBX routing delay, calls that never reached the trunk and duplicates." data-i18n-attr="title"><input id="lE2e" type="checkbox"> <span data-i18n>End-to-end via vendor</span></label>
         <label class="check" title="On 503 Service Unavailable, lower the rate and recover over 3 s (calls are not retried)" data-i18n-attr="title"><input id="lBackoff" type="checkbox" checked> <span data-i18n>Slow down on 503</span></label>
         <label class="check" title="Send credentials with the next request using the last nonce, saving a 401/407 round trip (like a phone re-registering). Off = every request is challenged." data-i18n-attr="title"><input id="lReuseNonce" type="checkbox"> <span data-i18n>Reuse nonce</span></label>
         <details class="crit"><summary data-i18n>Acceptance criteria</summary>
@@ -140,6 +169,8 @@
             <label><span id="cP95Lbl" data-i18n>PDD p95 ≤ (ms)</span> <input id="cP95" type="number" value="500" min="0"></label>
             <label><span id="cP99Lbl" data-i18n>PDD p99 ≤ (ms)</span> <input id="cP99" type="number" placeholder="—" min="0"></label>
             <label class="sc-call"><span data-i18n>ASR ≥ %</span> <input id="cAsr" type="number" value="99" min="0" max="100" step="0.1"></label>
+            <label class="sc-call sc-e2e"><span data-i18n>End-to-end p95 ≤ (ms)</span> <input id="cE2e" type="number" value="200" min="0"></label>
+            <label class="sc-call sc-e2e"><span data-i18n>Not reached ≤ %</span> <input id="cMiss" type="number" value="0" min="0" step="0.01"></label>
             <label><span data-i18n>Failures ≤ %</span> <input id="cErr" type="number" value="1" min="0" step="0.01"></label>
             <label class="sc-call"><span data-i18n>RTP loss ≤ %</span> <input id="cLoss" type="number" value="1" min="0" step="0.01"></label>
             <label title="Defaults to the target rate when empty" data-i18n-attr="title"><span data-i18n>Min rate</span> <input id="cMinRate" type="number" placeholder="target" data-i18n-attr="placeholder" min="0"></label>
@@ -169,6 +200,12 @@
         <div class="kpi sc-call"><span data-i18n>Completed · dropped</span><b id="kBye">0</b></div>
         <div class="kpi sc-nocall"><span data-i18n>Auth challenges</span><b id="kCh">0</b></div>
         <div class="kpi sc-nocall"><span data-i18n>Average rate</span><b id="kAvg">—</b></div>
+      </div>
+      <div class="kpis e2ek sc-call" id="e2ePanel">
+        <div class="kpi"><span data-i18n>Reached the vendor</span><b id="eRx">—</b></div>
+        <div class="kpi"><span title="Calls that never arrived at the vendor: rejected or lost inside the PBX (includes calls still in progress while the test runs)" data-i18n-attr="title" data-i18n>Not reached</span><b id="eMiss">—</b></div>
+        <div class="kpi"><span title="The same call arrived at the vendor more than once (PBX retry or failover)" data-i18n-attr="title" data-i18n>Duplicates</span><b id="eDup">—</b></div>
+        <div class="kpi"><span title="INVITE sent by the client → INVITE received by the vendor: the time the PBX needs to route the call" data-i18n-attr="title" data-i18n>Routing delay p50 / p95 / p99</span><b id="eLat">—</b></div>
       </div>
       <div class="kpis rtpk sc-call" id="rtpPanel">
         <div class="kpi"><span data-i18n>RTP packets tx / rx</span><b id="rPkts">—</b></div>
@@ -207,6 +244,7 @@
 <script src="i18n.js"></script>
 <script src="web-api.js"></script>
 <script src="renderer.js"></script>
+<script src="vendor.js"></script>
 <script src="load.js"></script>
 <script src="reports-ui.js"></script>
 </body>

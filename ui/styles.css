@@ -171,3 +171,6 @@ select.lang{min-width:52px}
 .ctitle{gap:10px;align-items:flex-start}
 .ctitle>span:first-child{white-space:nowrap}
 .ctitle .legend{flex-wrap:wrap;justify-content:flex-end;row-gap:2px}
+#view-load.noe2e .sc-e2e,#view-load.noe2e .e2ek{display:none}
+#mockAddr b{color:var(--ok)}
+#mockLog{max-height:60px;overflow:auto;white-space:pre-wrap}

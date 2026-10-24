@@ -50,7 +50,7 @@ class ReportStore {
 }
 
 // Combines the engine's 'done' output and the start request into one report
-function assembleReport({ done, req, series, app }) {
+function assembleReport({ done, req, series, vendor, app }) {
   const cfg = req && req.cfg || {};
   return {
     version: 1, app: app || 'sip-tester',
@@ -61,6 +61,7 @@ function assembleReport({ done, req, series, app }) {
     totals: done.totals,
     series: series && series.length ? series : done.series,
     events: done.events || [],
+    vendor: vendor ? { opts: { ...vendor, password: undefined } } : null,
   };
 }
 

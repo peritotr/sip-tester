@@ -10,7 +10,7 @@ COPY package.json ./
 # Only runtime dependencies (Electron and other desktop build tools are devDependencies)
 RUN apk add --no-cache su-exec && npm install --omit=dev --no-audit --no-fund && npm cache clean --force
 
-COPY server.js sip-core.js sip-client.js rtp.js load-engine.js load-worker.js ipc-child.js hist.js reports.js uas.js ./
+COPY server.js sip-core.js sip-client.js rtp.js load-engine.js load-worker.js mock-vendor.js mock-worker.js ipc-child.js hist.js reports.js uas.js ./
 COPY ui ./ui
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 

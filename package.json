@@ -63,6 +63,8 @@
       "rtp.js",
       "load-engine.js",
       "load-worker.js",
+      "mock-worker.js",
+      "mock-vendor.js",
       "ipc-child.js",
       "hist.js",
       "reports.js",

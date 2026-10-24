@@ -1,12 +1,12 @@
 // Load test view (uses $, val, setVal, esc, t, tm, connCfg from renderer.js)
 const LOAD_FIELDS = ['lScenario','lName','lDst','lUsers','lPassTpl','lRate','lMode','lAmount','lStepStart','lStepInc','lStepDur','lRamp','lConcurrent','lHoldMin','lHoldMax','lMaxRing',
-  'lExpires','lConnections','lRespTimeout','lRtpMax','lCodec','lRtp','lBackoff','lReuseNonce','cP95','cP99','cAsr','cErr','cLoss','cMinRate'];
+  'lExpires','lConnections','lRespTimeout','lRtpMax','lCodec','lRtp','lBackoff','lReuseNonce','lE2e','cP95','cP99','cAsr','cE2e','cMiss','cErr','cLoss','cMinRate'];
 const fmt = n => n == null || isNaN(n) ? '—' : Math.round(n).toLocaleString(I18N.locale);
 const fr = n => n == null || isNaN(n) ? '—' : (n < 10 && n % 1 ? n.toFixed(1) : Math.round(n).toLocaleString(I18N.locale));
 const fms = n => n == null || isNaN(n) ? '—' : (n < 10 ? n.toFixed(1) : Math.round(n).toString());
 
 let series = [], lastResult = null, loadRunning = false, testStartedAt = null, lastTotals = null, lastReportId = null, lastVerdict = null, runScenario = null;
-let phaseMsg = null;
+let phaseMsg = null, runE2e = null;
 const sc = () => runScenario || val('lScenario');
 const unit = s => (s || sc()) === 'call' ? 'CPS' : 'RPS';
 
@@ -28,6 +28,7 @@ function updScenario() {
   const s = sc(), v = $('view-load');
   v.classList.remove('sc-call', 'sc-register', 'sc-options'); v.classList.add('sc-' + s);
   v.classList.toggle('nortp', !val('lRtp'));
+  v.classList.toggle('noe2e', !(s === 'call' && (runE2e != null ? runE2e : val('lE2e'))));
   v.classList.toggle('steps', val('lMode') === 'steps');
   const call = s === 'call';
   $('lRateLbl').textContent = t(call ? 'Target CPS' : 'Target RPS');
@@ -53,7 +54,7 @@ function updStepInfo() {
   setPhase({ step: true, key: '{n} steps · {from} → {to} {unit} · ~{min} min total', p: { n, from: fr(a), to: fr(max), unit: unit(), min: Math.round(n * d / 60) } });
 }
 ['lStepStart','lStepInc','lStepDur','lRate'].forEach(id => $(id).addEventListener('input', updStepInfo));
-['lMode','lScenario','lRtp'].forEach(id => $(id).addEventListener('change', updScenario));
+['lMode','lScenario','lRtp','lE2e'].forEach(id => $(id).addEventListener('change', updScenario));
 
 // ---------- Start / stop ----------
 $('lStart').onclick = async () => {
@@ -65,6 +66,9 @@ $('lStart').onclick = async () => {
   if (s === 'call' && Number(val('lConcurrent')) < rate * (hold + 1) * 0.9) {
     if (!confirm(t('At {rate} CPS with ~{hold} s calls you need about {need} concurrent calls, but the limit is {lim}. The target rate will not be reached. Start anyway?', { rate: fr(rate), hold: fr(hold), need: fmt(rate * (hold + 1)), lim: fmt(val('lConcurrent')) }))) return;
   }
+  const e2e = s === 'call' && val('lE2e');
+  if (e2e && !/[xX]{4,}$/.test(val('lDst').trim().split(/[\s,;]+/)[0] || '')) { alert(t('For end-to-end measurement the destination must end with at least 4 X, e.g. 8XXXXXXX. Route that prefix to the vendor on your PBX.')); $('lDst').focus(); return; }
+  if (e2e && !window.mockState.on && !confirm(t('End-to-end measurement needs the vendor on the left to be running and your PBX to route the calls to it. The vendor is stopped. Start anyway?'))) return;
   const cfg = connCfg();
   const test = {
     scenario: s, name: val('lName').trim(), rate: val('lRate'), concurrent: val('lConcurrent'), connections: val('lConnections'),
@@ -72,16 +76,17 @@ $('lStart').onclick = async () => {
     steps: val('lMode') === 'steps' ? { start: val('lStepStart'), inc: val('lStepInc'), dur: val('lStepDur') } : null,
     ramp: val('lRamp'), respTimeout: val('lRespTimeout'),
     dst: val('lDst'), users: val('lUsers'), passTpl: val('lPassTpl'), holdMin: val('lHoldMin'), holdMax: val('lHoldMax'), maxRing: val('lMaxRing'),
-    expires: val('lExpires'), rtp: val('lRtp'), rtpMax: val('lRtpMax'), codec: val('lCodec'), backoff503: val('lBackoff'), reuseNonce: val('lReuseNonce'),
+    expires: val('lExpires'), e2e, rtp: val('lRtp'), rtpMax: val('lRtpMax'), codec: val('lCodec'), backoff503: val('lBackoff'), reuseNonce: val('lReuseNonce'),
     criteria: {
       p95Max: Number(val('cP95')) || null, p99Max: Number(val('cP99')) || null,
       asrMin: s === 'call' && val('cAsr') !== '' ? Number(val('cAsr')) : null,
+      e2eP95Max: e2e ? (Number(val('cE2e')) || null) : null, e2eMissMaxPct: e2e && val('cMiss') !== '' ? Number(val('cMiss')) : null,
       errMaxPct: val('cErr') === '' ? null : Number(val('cErr')),
       rtpLossMaxPct: s === 'call' && val('lRtp') && val('cLoss') !== '' ? Number(val('cLoss')) : null,
       minTps: Number(val('cMinRate')) || Number(val('lRate')),
     },
   };
-  runScenario = s; series = []; lastTotals = null; testStartedAt = new Date();
+  runScenario = s; runE2e = e2e; series = []; lastTotals = null; testStartedAt = new Date();
   lastResult = { cfg: { host: cfg.host, port: cfg.port, transport: cfg.transport, user: cfg.user }, test };
   resetKpis(); updScenario(); redraw();
   setRunning(true); setPhase('Starting…');
@@ -98,7 +103,7 @@ function setRunning(r) {
   loadRunning = r;
   $('lStart').disabled = r; $('lStop').disabled = !r; $('lCsv').disabled = r || !series.length;
   document.querySelectorAll('#view-load .compose input, #view-load .compose select').forEach(e => e.disabled = r);
-  if (!r) { runScenario = null; }
+  if (!r) { runScenario = null; runE2e = null; }
 }
 function setPhase(msg, cls) { phaseMsg = { msg, cls }; renderPhase(); }
 function renderPhase() {
@@ -123,6 +128,7 @@ api.on('load:tick', m => {
   redraw();
 });
 api.on('load:done', m => {
+  loadRunning = false; // final totals: render them as finished
   lastResult = lastResult || {}; lastResult.totals = m.totals; lastTotals = m.totals; series = series.length ? series : m.series;
   renderTotals(m.totals);
   $('kSentTps').textContent = '—'; $('kOkTps').textContent = '—'; $('kActive').textContent = '0';
@@ -133,6 +139,7 @@ api.on('load:done', m => {
 function resetKpis() {
   ['kSentTps','kOkTps','kActive','kLat','kAsr','kAvg','rPkts','rLoss','rJit','rRtt'].forEach(id => $(id).textContent = '—');
   ['kSent','kOk','kErr','kThr','kTo','kRetr','kBye','kCh'].forEach(id => $(id).textContent = '0');
+  ['eRx','eMiss','eDup','eLat'].forEach(id => { $(id).textContent = '—'; $(id).className = ''; });
   $('kActMax').textContent = '';
   $('tErrs').innerHTML = '<tr><td class="muted">—</td></tr>'; $('tTiming').innerHTML = '<tr><td class="muted">—</td></tr>';
 }
@@ -157,11 +164,19 @@ function renderTotals(T, r) {
       const q = T.rtt || {}; $('rRtt').textContent = q.n ? `${fms(q.p50)} / ${fms(q.p95)} ms` : (r && r.rttP95 != null ? fms(r.rttP95) + ' ms' : '—');
     }
   }
+  if (T.e2e) {
+    const E = T.e2e, l = E.lat || {};
+    $('eRx').textContent = fmt(E.reached) + (E.sent ? ` (${(E.reached / E.sent * 100).toFixed(E.reached === E.sent ? 0 : 2)}%)` : '');
+    $('eMiss').textContent = fmt(E.missing) + (loadRunning ? ' · ' + t('incl. in progress') : E.sent ? ` (${(E.missing / E.sent * 100).toFixed(2)}%)` : '');
+    $('eMiss').className = !loadRunning && E.missing ? 'err' : '';
+    $('eDup').textContent = fmt(E.dup) + (E.unmatched ? ' · ' + t('{n} unknown', { n: fmt(E.unmatched) }) : ''); $('eDup').className = E.dup ? 'err' : '';
+    $('eLat').textContent = l.n ? `${fms(l.p50)} / ${fms(l.p95)} / ${fms(l.p99)} ms` : '—';
+  }
   const errs = Object.entries(T.errs || {}).sort((a, b) => b[1] - a[1]);
   $('tErrs').innerHTML = errs.length ? errs.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="r">${fmt(v)}</td></tr>`).join('') : `<tr><td class="muted">${t('No failures')}</td></tr>`;
   const H = (label, h) => h && h.n ? `<tr><td class="l">${esc(label)}</td><td class="r">${fms(h.p50)}</td><td class="r">${fms(h.p95)}</td><td class="r">${fms(h.p99)}</td><td class="r">${fms(h.max)}</td></tr>` : '';
   const rows = T.scenario === 'call'
-    ? H(t('INVITE → 100 Trying'), T.t100) + H(t('PDD (INVITE → 180/183)'), T.lat) + H(t('INVITE → 200 OK'), T.ans) + H(t('BYE → 200 OK'), T.bye)
+    ? H(t('INVITE → 100 Trying'), T.t100) + (T.e2e ? H(t('INVITE → vendor (routing)'), T.e2e.lat) : '') + H(t('PDD (INVITE → 180/183)'), T.lat) + H(t('INVITE → 200 OK'), T.ans) + H(t('BYE → 200 OK'), T.bye)
     : H(t(T.scenario === 'register' ? 'REGISTER → 200 OK (with challenge)' : 'OPTIONS → response'), T.lat);
   $('tTiming').innerHTML = rows ? `<tr><td class="l">ms</td><td class="r l">p50</td><td class="r l">p95</td><td class="r l">p99</td><td class="r l">max</td></tr>${rows}` : '<tr><td class="muted">—</td></tr>';
 }
@@ -177,7 +192,7 @@ const RATE_LINES = () => [
   { k: 'retrTps', label: 'Retransmissions', c: '--violet' },
 ];
 const LAT_LINES = () => sc() === 'call'
-  ? [{ k: 'p50', label: 'PDD p50', c: '--ok' }, { k: 'p95', label: 'PDD p95', c: '--warn' }, { k: 'p99', label: 'PDD p99', c: '--err' }, { k: 't100P95', label: '100 Trying p95', c: '--violet' }]
+  ? [{ k: 'p50', label: 'PDD p50', c: '--ok' }, { k: 'p95', label: 'PDD p95', c: '--warn' }, { k: 'p99', label: 'PDD p99', c: '--err' }, { k: 't100P95', label: '100 Trying p95', c: '--violet' }, ...((runE2e != null ? runE2e : val('lE2e')) ? [{ k: 'e2eP95', label: 'Routing p95', c: '--accent' }] : [])]
   : [{ k: 'p50', label: 'p50', c: '--ok' }, { k: 'p95', label: 'p95', c: '--warn' }, { k: 'p99', label: 'p99', c: '--err' }];
 const ACT_LINES = () => [{ k: 'inflight', label: sc() === 'call' ? 'Active calls' : 'In flight', c: '--accent' }, ...(sc() === 'call' ? [{ k: 'rtpCalls', label: 'With RTP', c: '--violet' }] : [])];
 const RTP_LINES = () => [{ k: 'rtpLoss', label: 'Loss %', c: '--err' }, { k: 'jitter', label: 'Jitter ms', c: '--warn' }, { k: 'rttP95', label: 'Echo RTT p95 ms', c: '--violet' }];
@@ -239,10 +254,11 @@ $('lCsv').onclick = () => {
     row(['# ' + t('Attempts'), T.sent, 'OK', T.ok, t('Failed'), T.err, '503', T.throttled, t('Timeouts'), T.timeouts, t('Retransmissions'), T.retrans]),
     row(['# ms', 'p50', l.p50, 'p95', l.p95, 'p99', l.p99, 'max', l.max]),
     ...(T.scenario === 'call' ? [row(['# ' + t('Calls'), 'ASR %', T.asr, t('Completed'), T.completed, t('Dropped'), T.dropped, 'RTP loss %', T.rtpLossPct])] : []),
+    ...(T.e2e ? [row(['# ' + t('End-to-end'), t('Reached the vendor'), T.e2e.reached, t('Not reached'), T.e2e.missing, t('Duplicates'), T.e2e.dup, 'routing p50 ms', T.e2e.lat.p50, 'p95', T.e2e.lat.p95, 'p99', T.e2e.lat.p99])] : []),
     row(['# ' + t('Failure codes'), Object.entries(T.errs || {}).map(([k, v]) => k + '=' + v).join(' ')]),
     '',
-    ['second', 'target', 'sent_ps', 'ok_ps', 'failed_ps', '503_ps', 'timeout_ps', 'retrans_ps', 'active', 'p50_ms', 'p95_ms', 'p99_ms', 'max_ms', 'answer_p95_ms', 'trying_p95_ms', 'bye_ps', 'dropped_ps', 'rtp_calls', 'rtp_loss_pct', 'jitter_ms', 'echo_rtt_p95_ms'].join(sep),
-    ...series.map(s => row([s.t, s.target, s.sentTps, s.okTps, s.errTps, s.thrTps, s.toTps, s.retrTps, s.inflight, s.p50, s.p95, s.p99, s.max, s.ansP95, s.t100P95, s.byeTps, s.dropTps, s.rtpCalls, s.rtpLoss, s.jitter, s.rttP95])),
+    ['second', 'target', 'sent_ps', 'ok_ps', 'failed_ps', '503_ps', 'timeout_ps', 'retrans_ps', 'active', 'p50_ms', 'p95_ms', 'p99_ms', 'max_ms', 'answer_p95_ms', 'trying_p95_ms', 'bye_ps', 'dropped_ps', 'rtp_calls', 'rtp_loss_pct', 'jitter_ms', 'echo_rtt_p95_ms', 'vendor_rx_ps', 'routing_p50_ms', 'routing_p95_ms', 'routing_p99_ms'].join(sep),
+    ...series.map(s => row([s.t, s.target, s.sentTps, s.okTps, s.errTps, s.thrTps, s.toTps, s.retrTps, s.inflight, s.p50, s.p95, s.p99, s.max, s.ansP95, s.t100P95, s.byeTps, s.dropTps, s.rtpCalls, s.rtpLoss, s.jitter, s.rttP95, s.e2eRxTps, s.e2eP50, s.e2eP95, s.e2eP99])),
   ];
   api.saveFile('﻿' + lines.join('\n'), `sip-load-test-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`);
 };
@@ -250,7 +266,7 @@ $('lCsv').onclick = () => {
 // Web edition: restore a running test after a page reload
 window.onLoadSync = ld => {
   const active = ['connecting', 'running', 'draining'].includes(ld.phase);
-  if (ld.test && ld.test.scenario) { setVal('lScenario', ld.test.scenario); if (active) runScenario = ld.test.scenario; }
+  if (ld.test && ld.test.scenario) { setVal('lScenario', ld.test.scenario); if (active) { runScenario = ld.test.scenario; runE2e = !!ld.test.e2e; } }
   if (active && !loadRunning) { setRunning(true); runScenario = ld.test && ld.test.scenario || runScenario; setPhase(ld.key || ld.text ? ld : 'Running'); document.querySelector('.modes [data-mode=load]').click(); }
   if (ld.reportId && !active) { lastReportId = ld.reportId; showReportButton(); }
   if (ld.series && ld.series.length && !series.length) {

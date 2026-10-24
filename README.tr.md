@@ -6,8 +6,8 @@
 
 **PBX'inin veya SIP sunucunun gerçekte kaç aramayı kaldırdığını — ve ilk neyin bozulduğunu — öğren.**
 
-Hafif RTP'li SIP arama üreteci, kayıt (REGISTER) fırtınası ve OPTIONS yük testi tek araçta.<br>
-Yükü kademeli artırır, sunucunun zorlanmaya başladığı noktayı bulur ve performans raporunu senin yerine yazar.
+Hafif RTP'li SIP arama üreteci, kayıt (REGISTER) fırtınası ve OPTIONS yük testi — karşı tarafta da dahili bir operatör trunk'ı.<br>
+PBX'inin **iki ucunda** birden durur, zorlanmaya başladığı noktayı bulur ve performans raporunu senin yerine yazar.
 
 [English](README.md) · [Sunucu kurulum rehberi](docs/server-setup.md) · [Değişiklikler](CHANGELOG.md)
 
@@ -26,12 +26,20 @@ Her PBX, SBC ve SIP proxy er geç aynı sorularla karşılaşır — genelde yo�
 
 SIP Tester bunları gerçek SIP trafiğiyle cevaplar: digest kimlik doğrulamalı eksiksiz arama akışları (INVITE → 100 → 180 → 200 → ACK → konuşma → BYE), kayıtlar, OPTIONS ve aramaların bir bölümünde G.711 medya. **Kademeli test** hızı sunucu eğilene kadar artırır; rapor da sade bir dille *"sunucu 250 CPS'e kadar temiz; 300 CPS basamağında PDD yükseldi (p95 4 → 75 ms); RTP kaybı %0,64"* der ve grafiklerle destekler.
 
+PBX'inin **iki tarafında** durabilir: içeri arayan telefonlar (dahililer) ve PBX'in dışarı yönlendirdiği aramaları alan bir operatör trunk'ı. Her arama, trunk tarafının geri okuduğu bir numara taşır; böylece araç iki tarafın tek başına göremediğini ölçer: **PBX içinden yönlendirme gecikmesi, trunk'a hiç ulaşmayan aramalar ve çift gelenler**.
+
+```
+SIP Tester (dahililer) ──INVITE──▶  PBX  ──INVITE──▶  SIP Tester (vendor trunk)
+```
+
 ### Öne çıkanlar
 
 - **Üç senaryo**: aramalar (INVITE), kayıtlar (REGISTER) ve OPTIONS
 - 2 vCPU'lu bir makineden **2.000+ CPS / 6.000 eşzamanlı arama** (sinyalleşme)
 - **Hafif RTP**: en fazla N aramada 20 ms G.711; paket kaybı, jitter, sessiz aramalar ve echo dahilisinde **gidiş-dönüş süresi**
 - Kırılma noktasını otomatik bulan **kademeli testler**
+- Opsiyonel digest kimlik doğrulamalı **dahili vendor trunk**: cevaplar, RTP'yi yansıtır, yavaş veya dolu bir operatör gibi davranabilir (gecikme, CPS sınırı, kanal sınırı, meşgul/hata %, erken kapatma)
+- PBX içinden **uçtan uca takip**: yönlendirme gecikmesi, ulaşmayan ve çift aramalar
 - Aramaları çok sayıda dahiliye yaymak veya kayıt fırtınası oluşturmak için **hesap rotasyonu** (`1000-1499`, şifre şablonu `pw{user}`)
 - SIP'te önemli olanı sayar: **ASR, PDD, 100 Trying süresi, 503'ler, zaman aşımları, yeniden gönderimler, sunucunun düşürdüğü aramalar, başarısız BYE'ler**
 - SLA'ya göre **GEÇTİ / KALDI**, kaydedilen raporlar, PDF / CSV / JSON dışa aktarma
@@ -52,6 +60,8 @@ SIP Tester bunları gerçek SIP trafiğiyle cevaplar: digest kimlik doğrulamal�
 | Zaman aşımı | Yanıt limiti içinde nihai yanıt yok (Timer B/F, varsayılan 32 sn). |
 | RTP kaybı / jitter | Geri gelen medyada RFC 3550 alma istatistikleri. |
 | Echo gidiş-dönüş | Her paket gönderim zamanını taşır; echo dahilisi geri gönderince gidiş-dönüş ölçülür. |
+| **Yönlendirme gecikmesi** (uçtan uca) | Client'ın gönderdiği INVITE → dahili vendor'a gelen INVITE: PBX'in aramayı trunk'a yönlendirme süresi. Yalnızca *Vendor üzerinden uçtan uca* açıkken. |
+| Ulaşmayan | INVITE'ı vendor'a hiç gelmeyen aramalar: PBX içinde reddedilen veya kaybolanlar. |
 | Kayıt / OPTIONS gecikmesi | İstek → nihai yanıt, 401 sorgu turu **dahil**. |
 
 Digest sorguları (401/407) otomatik cevaplanır ve sayılır; hata sayılmaz.
@@ -97,6 +107,13 @@ Konteyner host ağını kullanır: SIP ve RTP çalışma anında seçilen UDP po
 3. **Tekil test** (sol panel): sunucuyu ve bir dahiliyi gir, **Bağlan**, sonra **OPTIONS** ve **Kaydol**. `600`'ü 10 sn ara; SIP logunu ve RTP sütunlarını kontrol et.
 4. **Yük testi → Aramalar → Kademeli**: hesaplar `1000-1499`, şifre şablonu `pw{user}`, aranan `600`, başlangıç 10 CPS, artış 10, hedef 200, basamak 60 sn, konuşma 20–40 sn, 100 aramada RTP. Bitince raporu aç.
 
+### PBX içinden uçtan uca
+
+1. **Vendor'ı başlat** (sol panel, alt): port ör. `5080`; PBX başka makinedeyse *Ağdan erişilebilir (0.0.0.0)*. İstersen trunk kullanıcı adı ve şifresi ver.
+2. **PBX'te bu adrese bir trunk** ve test ön ekini (ör. `8XXXXXXX`) ona gönderen bir dış hat kuralı tanımla. Asterisk örneği İngilizce README'de.
+3. **Yük testi → Aramalar**: aranan `8XXXXXXX` (sonda en az 4 X; PBX numaranın son hanelerini trunk'a değiştirmeden geçirmeli), **Vendor üzerinden uçtan uca** kutusunu işaretle.
+4. Rapor yönlendirme gecikmesini, ulaşan / ulaşmayan / çift aramaları ve yönlendirme gecikmesinin başladığı yükü ekler. Dolu bir trunk (vendor'da kanal sınırı) *"tüm aramalar vendor'a ulaştı; hatalar trunk tarafında oldu"* olarak görünür.
+
 **Eşzamanlılık sınırı.** Eşzamanlı arama ≈ CPS × (çalma + konuşma süresi). 100 CPS ve 30 sn'lik aramalar ~3.000 eşzamanlı arama demektir; *Maks. eşzamanlı arama* bunun üstünde olmalı, yoksa hedef hıza ulaşılamaz (araç başlatmadan önce uyarır).
 
 **Kayıt fırtınası.** Senaryo *Kayıtlar*, hesaplar `1000-1499`, 30 sn boyunca 200 RPS. *Nonce'u yeniden kullan* kapalıyken her REGISTER sorgu turunun tamamını yaşar — kesinti sonrası en kötü durum.
@@ -111,7 +128,8 @@ Konteyner host ağını kullanır: SIP ve RTP çalışma anında seçilen UDP po
 ## Sınırlar (v0.x)
 
 - UDP ve TCP; TLS (SIPS) ve SRTP henüz yok.
-- Araç arayan taraftır (UAC). Arama almaz; bu yüzden PBX üzerinden bir trunk'a uçtan uca ölçüm henüz yok.
+- Uçtan uca ölçüm için aranan numaranın son haneleri trunk'a değişmeden ulaşmalı.
+- Vendor yalnızca arama alır; trunk tarafından dahililere doğru arama üretme (gelen DID yükü) henüz yok.
 - Medya yalnızca G.711 (PCMU/PCMA), zaman işaretli sessizlik; ses dosyası ve MOS tahmini yok.
 - DNS SRV/NAPTR yok: host düz A kaydıyla çözülür ve tüm istekler oraya gider.
 

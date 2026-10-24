@@ -10,4 +10,6 @@ First version.
 - Constant and step tests, ramp-up, back-off on 503, several sockets / TCP connections
 - Performance report with latency onset, saturation cause, step table, acceptance criteria, PDF / CSV / JSON
 - Single-test view with a per-call SIP message log
+- Built-in vendor (trunk): UDP + TCP, optional digest auth, ring/answer delays, CPS and channel limits, processing capacity, busy/failure %, vendor-side hang-up, RTP echo; restored after a server restart
+- End-to-end measurement through the PBX: call number in the trailing digits, routing delay, calls not reached, duplicates, failure location (PBX vs trunk)
 - Desktop app (Electron) and web server edition (Docker); English and Turkish

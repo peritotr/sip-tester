@@ -5,11 +5,13 @@
 //   PORT          Web UI port (default 8080)
 //   HOST          Address the web UI listens on (default 0.0.0.0)
 //   UI_PASSWORD   UI login password (REQUIRED, at least 8 characters)
-//   DATA_DIR      Folder for profiles, reports and the secret key (default ./data)
+//   DATA_DIR      Folder for profiles, reports, vendor settings and the secret key (default ./data)
+//   PUBLIC_IP     IP shown as the vendor address (optional; otherwise taken from the network interfaces)
 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
 const { fork } = require('child_process');
 const { WebSocketServer } = require('ws');
@@ -93,7 +95,7 @@ function broadcast(ch, data) {
   const msg = JSON.stringify({ ev: ch, data });
   for (const ws of clients) if (ws.readyState === 1) ws.send(msg);
 }
-const state = { sip: { state: 'disconnected' }, reg: { state: 'none' }, load: { phase: 'idle', text: '' } };
+const state = { sip: { state: 'disconnected' }, reg: { state: 'none' }, mock: { on: false, opts: null }, load: { phase: 'idle', text: '' } };
 
 // Interactive client (one shared session for every browser tab)
 const client = new SipClient();
@@ -111,12 +113,13 @@ function getLoad() {
   if (loadProc) return loadProc;
   const p = loadProc = fork(path.join(__dirname, 'load-worker.js'), [], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
   p.on('message', m => {
-    if (m.type === 'phase') state.load = { ...state.load, phase: m.phase, text: m.text, key: m.key, p: m.p };
+    if (m.type === 'phase') { state.load = { ...state.load, phase: m.phase, text: m.text, key: m.key, p: m.p }; if (m.phase === 'error' || m.phase === 'done') e2eActive = false; }
     else if (m.type === 'tick') { loadSeries.push(m.row); if (loadSeries.length > 86400) loadSeries.shift(); loadTotals = m.totals; }
     else if (m.type === 'done') {
       loadTotals = m.totals;
       try {
-        const entry = reports.save(assembleReport({ done: m, req: loadReq, series: loadSeries, app: 'sip-tester-web' }));
+        e2eActive = false;
+        const entry = reports.save(assembleReport({ done: m, req: loadReq, series: loadSeries, vendor: loadVendor, app: 'sip-tester-web' }));
         state.load = { ...state.load, reportId: entry.id };
         broadcast('report:saved', entry);
       } catch (e) { console.error('Could not save the report:', e.message); }
@@ -127,7 +130,39 @@ function getLoad() {
   return p;
 }
 
-function publicState(full) { return { sip: state.sip, reg: state.reg, load: full ? { ...state.load, series: loadSeries, totals: loadTotals } : state.load, server: true }; }
+// Built-in vendor (trunk) process
+let mockProc = null, e2eActive = false, loadVendor = null;
+function startMock(opts) {
+  return new Promise(resolve => {
+    if (mockProc) mockProc.kill();
+    const p = mockProc = fork(path.join(__dirname, 'mock-worker.js'), [], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
+    p.on('message', m => {
+      if (m.type === 'log') broadcast('mock:log', m.msg);
+      else if (m.type === 'stats') broadcast('mock:stats', m.stats);
+      else if (m.type === 'arrivals') { if (e2eActive && loadProc) loadProc.send({ type: 'arrivals', list: m.list }); }
+      else if (m.type === 'started') { p.started = true; state.mock = { on: true, opts: { ...opts, password: undefined, port: m.port } }; saveVendor(opts); broadcast('mock:state', state.mock); resolve({ ok: true }); }
+      else if (m.type === 'error') { if (!p.started) { p.kill(); if (mockProc === p) mockProc = null; resolve({ ok: false, error: m.msg || m.text }); } else broadcast('mock:log', m.msg || { text: m.text }); }
+    });
+    p.on('exit', () => { if (mockProc === p) { mockProc = null; if (state.mock.on) { state.mock = { on: false, opts: null }; broadcast('mock:state', state.mock); } } });
+    p.send({ type: 'start', opts });
+  });
+}
+// Vendor settings are kept so the vendor comes back after a server/container restart
+const vendorFile = path.join(DATA_DIR, 'vendor.json');
+function saveVendor(opts) { try { fs.writeFileSync(vendorFile, JSON.stringify({ ...opts, password: opts.password ? encrypt(String(opts.password)) : '' }), { mode: 0o600 }); } catch {} }
+function clearVendor() { try { fs.unlinkSync(vendorFile); } catch {} }
+function restoreVendor() {
+  let o; try { o = JSON.parse(fs.readFileSync(vendorFile, 'utf8')); } catch { return; }
+  try { o.password = o.password ? decrypt(o.password) : ''; } catch { o.password = ''; }
+  startMock(o).then(r => console.log(r.ok ? `Vendor restored with its last settings (${o.host}:${o.port})` : `Could not start the vendor: ${r.error && r.error.text || r.error}`));
+}
+function ips() {
+  const list = Object.entries(os.networkInterfaces()).flatMap(([name, l]) => (l || []).filter(i => i.family === 'IPv4' && !i.internal).map(i => ({ name, address: i.address })));
+  if (process.env.PUBLIC_IP) list.unshift({ name: 'public IP', address: process.env.PUBLIC_IP });
+  return list;
+}
+
+function publicState(full) { return { sip: state.sip, reg: state.reg, mock: state.mock, load: full ? { ...state.load, series: loadSeries, totals: loadTotals } : state.load, server: true }; }
 
 // ---------- Profiles ----------
 const profilesFile = path.join(DATA_DIR, 'profiles.json');
@@ -160,12 +195,20 @@ const handlers = {
   'sip:hangupAll': () => client.hangupAll(),
   'load:start': (cfg, test) => {
     if (['connecting', 'running', 'draining'].includes(state.load.phase)) return { ok: false, error: { key: 'A test is already running', text: 'A test is already running' } };
-    state.load = { phase: 'connecting', text: 'Starting…', key: 'Starting…', test: { scenario: test && test.scenario, rate: test && test.rate } }; broadcast('load:phase', state.load);
+    state.load = { phase: 'connecting', text: 'Starting…', key: 'Starting…', test: { scenario: test && test.scenario, rate: test && test.rate, e2e: !!(test && test.e2e) } }; broadcast('load:phase', state.load);
     loadSeries = []; loadTotals = null; loadReq = { cfg: { ...cfg, password: undefined }, test: { ...test, passTpl: undefined } };
+    e2eActive = !!(test && test.e2e && mockProc); loadVendor = state.mock.on ? { ...state.mock.opts } : null;
     getLoad().send({ type: 'start', cfg, test }); return { ok: true };
   },
   'load:stop': () => { if (loadProc) loadProc.send({ type: 'stop' }); return { ok: true }; },
   'load:kill': () => { if (loadProc) loadProc.kill(); return { ok: true }; },
+  'mock:start': o => startMock(o || {}),
+  'mock:stop': () => {
+    clearVendor();
+    if (mockProc) { const p = mockProc; mockProc = null; p.kill(); state.mock = { on: false, opts: null }; broadcast('mock:state', state.mock); broadcast('mock:log', { key: 'Vendor stopped', text: 'Vendor stopped' }); }
+    return { ok: true };
+  },
+  'sys:ips': () => ips(),
   'profiles:load': () => loadProfiles(),
   'profiles:save': list => saveProfiles(list),
   'app:state': () => publicState(),
@@ -244,12 +287,13 @@ wss.on('connection', ws => {
 });
 setInterval(() => { for (const ws of clients) { if (!ws.isAlive) { ws.terminate(); continue; } ws.isAlive = false; ws.ping(); } }, 30000);
 
-server.listen(PORT, HOST, () => console.log(`SIP Tester web UI on http://${HOST}:${PORT}`));
+server.listen(PORT, HOST, () => { console.log(`SIP Tester web UI on http://${HOST}:${PORT}`); restoreVendor(); });
 
 function shutdown() {
   console.log('Shutting down…');
   try { client.disconnect(); } catch {}
   if (loadProc) loadProc.kill();
+  if (mockProc) mockProc.kill();
   server.close(); setTimeout(() => process.exit(0), 1500);
 }
 process.on('SIGTERM', shutdown); process.on('SIGINT', shutdown);

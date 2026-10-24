@@ -5,6 +5,7 @@ const send = require('./ipc-child')(async m => {
   try {
     if (m.type === 'start') await engine.start(m.cfg, m.test);
     else if (m.type === 'stop') engine.stop();
+    else if (m.type === 'arrivals') engine.addArrivals(m.list);
   } catch (e) { engine.running = false; send({ type: 'phase', phase: 'error', text: e.message, key: e.key, p: e.p }); }
 });
 for (const ev of ['phase', 'tick', 'done', 'log']) engine.on(ev, d => send({ type: ev, ...(typeof d === 'object' ? d : { text: d }) }));

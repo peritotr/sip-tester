@@ -45,6 +45,7 @@ The tester starts every connection, so outbound traffic is what matters:
 | --- | --- | --- |
 | Tester → PBX | SIP port (UDP/TCP 5060 by default) | Requests |
 | PBX → tester | The tester's SIP source port | Responses and in-dialog requests (BYE). Stateful firewalls allow it for UDP replies; set *Local SIP port* to a fixed value if yours doesn't. |
+| PBX → tester | Vendor port (UDP/TCP, e.g. 5080) | Calls the PBX routes out to the built-in vendor (end-to-end tests). Start the vendor on *Network (0.0.0.0)* and allow this port from the PBX only. |
 | PBX → tester | RTP ports | Media coming back. Set *RTP start port* (e.g. 30000) and open 30000–32000/udp if media must cross a firewall. |
 
 Behind NAT, set *Contact IP* to the tester's public address so Via, Contact and SDP point back to it.
@@ -54,7 +55,8 @@ Behind NAT, set *Contact IP* to the tester's public address so Via, Contact and 
 1. **Test extensions**: e.g. 1000–1499, password `pw<extension>` (use the password template `pw{user}`) or one shared password.
 2. **An answering destination**: an echo test (Asterisk `Answer()` + `Echo()`, FreeSWITCH `9196`) measures media both ways. An IVR or `Answer()` + `Wait()` works for signalling only.
 3. **Remove limits that would distort the test** — or keep them deliberately and test them: per-extension call limits, fail2ban / pike / anti-flood on the tester's IP, max open files (Asterisk `maxfiles` in `asterisk.conf`), RTP port range (`rtp.conf`: at least 2 ports per simultaneous call).
-4. **Never route test numbers to a trunk.**
+4. **For end-to-end tests**, add the built-in vendor as a trunk (tester IP, vendor port, optional username/password) and route a test prefix such as `8XXXXXXX` to it — see the README for an Asterisk example.
+5. **Never route test numbers to a real carrier trunk.**
 
 ## 6. A test plan
 
@@ -63,6 +65,8 @@ Behind NAT, set *Contact IP* to the tester's public address so Via, Contact and 
 | 1 | Single test | Connect, OPTIONS, Register, one 10 s call with RTP | Is the path, auth and media right? |
 | 2 | Calls, constant | 5 CPS, 2 min, hold 20–40 s, RTP on 50 | Baseline PDD, ASR and media quality |
 | 3 | Calls, step | 10 → 200 CPS, +10 per 60 s step, hold 20–40 s, RTP on 100 | The knee: highest clean CPS |
+| 3b | Calls, step, end to end | as #3 with destination `8XXXXXXX` and *End-to-end via vendor* | Routing delay through the PBX; does every call reach the trunk? |
+| 3c | Same, full trunk | vendor channel limit, e.g. 100 | How the PBX handles 503 from a full trunk |
 | 4 | Calls, soak | 70% of the knee for 30–60 min | Latency drift, dropped calls, leaks |
 | 5 | Registrations | accounts 1000-1499, 100 → 500 RPS step, nonce reuse off | Registration storm after an outage |
 | 6 | OPTIONS | 500 → 5,000 RPS step | Raw SIP stack throughput |
@@ -75,4 +79,6 @@ Start with acceptance criteria that match your SLA (e.g. PDD p95 ≤ 500 ms, ASR
 - **503 Service Unavailable** → the server is protecting itself (task-processor overload, licence or channel limits).
 - **488 Not Acceptable Here / no audio** → media resources ran out: RTP ports, open files, transcoding or media relay capacity.
 - **Retransmissions and timeouts** → packets are dropped or the server answers too late; check UDP buffers on both sides and the server's CPU.
+- **Routing delay rises before PDD** → the PBX struggles with the outbound leg (dialplan, routing lookups, trunk side) before the inbound side shows it.
+- **Calls not reached** → the PBX rejected or lost calls before sending them to the trunk; compare with its logs. If every call reached the vendor but some still failed, the failures came from the trunk side.
 - **Dropped calls** → the server hung up answered calls early: RTP timeouts, session timers, or a resource that ran out mid-call.

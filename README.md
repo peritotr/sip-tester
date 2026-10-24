@@ -6,8 +6,8 @@
 
 **Find out how many calls your PBX or SIP server really handles — and what breaks first.**
 
-A SIP call generator, registration storm and OPTIONS load tester with light RTP, in one tool.<br>
-It ramps up the load, finds the point where the server starts to struggle and writes the performance report for you.
+A SIP call generator, registration storm and OPTIONS load tester with light RTP — plus a built-in carrier trunk on the other side.<br>
+It plays **both ends** of your PBX, finds the point where it starts to struggle and writes the performance report for you.
 
 [![CI](https://github.com/peritotr/sip-tester/actions/workflows/ci.yml/badge.svg)](https://github.com/peritotr/sip-tester/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -29,7 +29,16 @@ Every PBX, SBC and SIP proxy eventually meets the same questions, usually on a b
 - What happens when 2,000 phones **re-register at once** after an outage?
 - Does audio still flow cleanly when the box is busy, or do packets start to drop?
 
+- How long does the PBX take to **route a call out to the trunk**, and does every call get there — exactly once?
+
 SIP Tester answers them with real SIP traffic: complete call flows with digest authentication (INVITE → 100 → 180 → 200 → ACK → hold → BYE), registrations, OPTIONS, and G.711 media on a sample of the calls. A **step test** climbs the rate until the server bends, and the report says, in plain language, *"the server is clean up to 250 CPS; post-dial delay rose at the 300 CPS step (p95 4 → 75 ms); RTP loss 0.64%"* — with the charts to back it up.
+
+It can sit on **both sides** of your PBX: phones (extensions) calling in, and a carrier trunk receiving the calls the PBX routes out. Each call carries a number the trunk side reads back, so the tool measures what neither side can see alone: **routing delay through the PBX, calls that never reach the trunk, and duplicates**.
+
+```
+SIP Tester (extensions) ──INVITE──▶  YOUR PBX  ──INVITE──▶  SIP Tester (vendor trunk)
+                        ◀────────────── RTP echo ──────────────────────────┘
+```
 
 ### Highlights
 
@@ -37,6 +46,8 @@ SIP Tester answers them with real SIP traffic: complete call flows with digest a
 - **2,000+ CPS / 6,000 concurrent calls** from a 2-vCPU machine (signalling)
 - **Light RTP**: 20 ms G.711 on up to N calls; packet loss, jitter, silent calls, and **echo round trip** on an echo extension
 - **Step tests** that find the knee point automatically
+- **Built-in vendor trunk** with optional digest auth that answers, echoes RTP and can behave like a slow or full carrier (delays, CPS limit, channel limit, busy/failure %, early hang-up)
+- **End-to-end tracking** through the PBX: routing delay, calls not reached, duplicates
 - **Account rotation** (`1000-1499`, password template `pw{user}`) to spread calls over many extensions or simulate a registration storm
 - Counts what matters in SIP: **ASR, PDD, 100 Trying time, 503s, timeouts, retransmissions, calls dropped by the server, failed BYEs**
 - **Pass / fail against your SLA**, saved reports, PDF / CSV / JSON export
@@ -59,6 +70,12 @@ SIP Tester answers them with real SIP traffic: complete call flows with digest a
 - **OPTIONS**: target RPS, max requests in flight
 - Constant (duration or count) or **step** tests, ramp-up, several local sockets or TCP connections, back-off on 503
 - Live charts: rate, latency (p50/p95/p99 and 100 Trying), simultaneous calls, media quality; failure code and timing breakdowns
+
+**Built-in vendor (trunk)**
+- Listens on UDP and TCP on one port; your PBX adds it as a trunk / outbound route (IP-authenticated, or with a username and password)
+- Answers after a configurable ring and answer delay, echoes RTP (or stays silent), optionally hangs up after N seconds
+- Misbehaves on purpose: CPS limit (503), channel limit (503, cause 34), processing capacity (a queue that slows answers), busy %, failure % with a chosen code
+- **End-to-end**: in the load test, the trailing X's of the destination (`8XXXXXXX`) carry a call number; the vendor reads it back and the report shows **routing delay** (client INVITE → vendor INVITE), calls **not reached**, **duplicates**, and whether failures happened inside the PBX or on the trunk side
 
 **Performance reports**
 - Saved automatically after every load test; printable to PDF, exportable to CSV/JSON
@@ -83,6 +100,8 @@ SIP Tester answers them with real SIP traffic: complete call flows with digest a
 | Timeouts | No final response within the response limit (Timer B/F, 32 s by default). |
 | RTP loss / jitter | RFC 3550 receive statistics on the media we get back. |
 | Echo round trip | Every packet carries its send time; when an echo extension returns it, the round trip is measured. |
+| **Routing delay** (end-to-end) | INVITE sent by the client → INVITE received by the built-in vendor: how long the PBX takes to route the call to the trunk. Only with *End-to-end via vendor*. |
+| Not reached | Call attempts whose INVITE never arrived at the vendor: rejected or lost inside the PBX. |
 | Registrations / OPTIONS latency | Request sent → final response, **including** the 401 challenge round trip. |
 
 Digest challenges (401/407) are answered automatically and counted; they are not failures.
@@ -151,6 +170,37 @@ Without Docker: `npm install --omit=dev && UI_PASSWORD=... node server.js`.
 3. **Single test** (left panel): enter the server and one extension, press **Connect**, then **OPTIONS** and **Register**. Call `600` for 10 s and check the SIP log and RTP columns.
 4. **Load test → Calls → Step**: accounts `1000-1499`, password template `pw{user}`, destination `600`, start 10 CPS, increment 10, target 200, step 60 s, hold 20–40 s, RTP on 100 calls. Open the report when it finishes.
 
+### End to end through the PBX
+
+1. **Start the vendor** (left panel, bottom): port e.g. `5080`; *Network (0.0.0.0)* if the PBX is on another machine. Optionally set a trunk username and password.
+2. **On the PBX, add a trunk** to that address and an outbound route that sends a test prefix to it, e.g. `8XXXXXXX`. Asterisk (PJSIP):
+
+   ```ini
+   ; pjsip.conf
+   [vendor-auth]
+   type=auth
+   auth_type=userpass
+   username=perito
+   password=trunkpw
+
+   [vendor]
+   type=aor
+   contact=sip:TESTER-IP:5080
+
+   [vendor]
+   type=endpoint
+   context=from-internal
+   allow=ulaw,alaw
+   direct_media=no
+   outbound_auth=vendor-auth
+   aors=vendor
+
+   ; extensions.conf
+   exten => _8XXXXXXX,1,Dial(PJSIP/${EXTEN}@vendor,60)
+   ```
+3. **Load test → Calls**: destination `8XXXXXXX` (at least 4 trailing X; the PBX must pass the dialled number to the trunk with its last digits unchanged), tick **End-to-end via vendor**, step test as above.
+4. The report adds routing delay, reached / not reached / duplicates and a routing-delay onset. A full trunk (set a channel limit on the vendor) shows up as *"every call reached the vendor, so the failures happened on the trunk side"*.
+
 **Sizing the concurrency limit.** Simultaneous calls ≈ CPS × (ring time + hold time). 100 CPS with 30 s calls means ~3,000 simultaneous calls; set *Max concurrent calls* above that or the target rate can't be reached (the tool warns you before starting).
 
 **Registration storm.** Scenario *Registrations*, accounts `1000-1499`, rate 200 RPS for 30 s. Leave *Reuse nonce* off to make every REGISTER take the full challenge round trip — the worst case after an outage.
@@ -177,16 +227,23 @@ flowchart LR
   subgraph W1["Child process"]
     L["Load engine<br/>token bucket · calls · RTP"]
   end
+  subgraph W2["Child process"]
+    M["Built-in vendor (trunk)<br/>answers · RTP echo"]
+  end
   P[("Your PBX / SIP server")]
   V <-- "IPC / WebSocket" --> Host
   Host <-- IPC --> L
+  Host <-- "IPC (arrivals for end-to-end)" --> M
   C -- "SIP + RTP" --> P
   L -- "INVITE / REGISTER / OPTIONS + RTP" --> P
+  P -- "INVITE over the trunk + RTP" --> M
 ```
 
 **One codebase, two shells.** The SIP stack, load engine and analysis are plain Node.js modules. The desktop app wraps them in Electron (`main.js` + `preload.js`); the server edition wraps the same modules in a small HTTP + WebSocket server (`server.js`). The UI doesn't know which one it is talking to.
 
 **A small SIP stack written for load.** `sip-core.js` (~600 lines) parses and builds messages, handles digest authentication (MD5, SHA-256, `qop=auth`, nonce reuse), runs client transactions with RFC 3261 retransmission timers over UDP or TCP, answers in-dialog requests (BYE, re-INVITE, OPTIONS) and takes care of CANCEL and ACK rules. It has been run against Asterisk 20 (PJSIP) and its own test UAS.
+
+**End to end on one clock.** The vendor runs in its own process on the same machine. Arrival times use `performance.timeOrigin + performance.now()`, the same clock in both processes; arrivals are batched every 100 ms through the main process to the load engine, which matches them to the calls it sent by the number in the last digits.
 
 **Measurement stays honest.** The load engine runs in its own process (Electron `utilityProcess` on desktop, `child_process.fork` on the server), so the UI can never slow it down. A token bucket ticks every 2 ms; latencies go into logarithmic histograms (~3% buckets), so p50/p95/p99 cost O(1) memory however long the test runs. RTP sockets are bound before the test starts and rest 2 s between calls so late packets can't pollute the next call's statistics.
 
@@ -209,7 +266,8 @@ flowchart LR
 | `rtp.js` | RTP sessions and socket pool, loss / jitter / echo round trip |
 | `sip-client.js` | Interactive client for the single-test view |
 | `load-engine.js`, `load-worker.js` | Load engine (own process): scenarios, rate control, concurrency, histograms |
-| `uas.js` | Built-in test SIP server used by the tests, the benchmark and `npm run uas` |
+| `mock-vendor.js`, `mock-worker.js` | Built-in vendor (trunk), in its own process in the apps |
+| `uas.js` | The vendor as a stand-alone test SIP server (`npm run uas`, tests, benchmark) |
 | `reports.js`, `ui/analysis.js` | Report archive and performance analysis |
 | `main.js`, `preload.js` | Desktop app (Electron) |
 | `server.js`, `ui/web-api.js` | Web server edition (HTTP + WebSocket, password login) |
@@ -222,7 +280,7 @@ flowchart LR
 npm install
 npm start          # desktop app
 npm run server     # web edition (set UI_PASSWORD first)
-npm test           # SIP core, load engine, analysis and translation tests
+npm test           # SIP core, load engine, vendor / end-to-end, analysis and translation tests
 npm run bench      # 1,000 CPS for 30 s against the built-in UAS
 npm run uas        # built-in test SIP server on udp/5070
 npm run dist       # build installers for the current OS into dist/
@@ -231,7 +289,8 @@ npm run dist       # build installers for the current OS into dist/
 ## Limits (v0.x)
 
 - UDP and TCP; TLS (SIPS) and SRTP are not supported yet.
-- The tester is the calling side (UAC). It does not receive calls, so it does not yet measure calls end to end through a PBX to a trunk.
+- End-to-end measurement needs the dialled number to reach the trunk with its last digits unchanged.
+- The vendor only receives calls; the tool does not yet place calls *from* the trunk side towards extensions (inbound DID load).
 - Media is G.711 only (PCMU/PCMA), silence payload with a timing marker; no audio files, no MOS estimate.
 - No DNS SRV/NAPTR: the host is resolved with a plain A lookup and every request goes to it.
 

@@ -2,6 +2,7 @@
 const { app, BrowserWindow, ipcMain, dialog, safeStorage, utilityProcess } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { SipClient } = require('./sip-client');
 const { ReportStore, assembleReport } = require('./reports');
 let reports = null;
@@ -26,14 +27,33 @@ function getLoad() {
   loadProc = utilityProcess.fork(path.join(__dirname, 'load-worker.js'), [], { serviceName: 'load-worker', stdio: 'ignore' });
   loadProc.on('message', m => {
     if (m.type === 'tick' && m.row) { loadSeries.push(m.row); if (loadSeries.length > 86400) loadSeries.shift(); }
+    if (m.type === 'done' || (m.type === 'phase' && m.phase === 'error')) e2eActive = false;
     send('load:' + m.type, m);
     if (m.type === 'done') {
-      try { send('report:saved', getReports().save(assembleReport({ done: m, req: loadReq, series: loadSeries, app: 'sip-tester-desktop' }))); }
+      try { send('report:saved', getReports().save(assembleReport({ done: m, req: loadReq, series: loadSeries, vendor: loadVendor, app: 'sip-tester-desktop' }))); }
       catch (e) { send('load:log', { text: 'Could not save the report: ' + e.message }); }
     }
   });
   loadProc.on('exit', () => { loadProc = null; send('load:phase', { phase: 'error', text: 'The load engine process exited', key: 'The load engine process exited' }); });
   return loadProc;
+}
+
+// ---------- Built-in vendor (trunk) in its own process ----------
+let mockProc = null, mockOpts = null, e2eActive = false, loadVendor = null;
+function startMock(opts) {
+  return new Promise(resolve => {
+    if (mockProc) mockProc.kill();
+    const p = mockProc = utilityProcess.fork(path.join(__dirname, 'mock-worker.js'), [], { serviceName: 'mock-worker', stdio: 'ignore' });
+    p.on('message', m => {
+      if (m.type === 'log') send('mock:log', m.msg);
+      else if (m.type === 'stats') send('mock:stats', m.stats);
+      else if (m.type === 'arrivals') { if (e2eActive && loadProc) loadProc.postMessage({ type: 'arrivals', list: m.list }); }
+      else if (m.type === 'started') { p.started = true; mockOpts = { ...opts, password: undefined, port: m.port }; send('mock:state', { on: true, opts: mockOpts }); resolve({ ok: true }); }
+      else if (m.type === 'error') { if (!p.started) { p.kill(); if (mockProc === p) mockProc = null; resolve({ ok: false, error: m.msg || m.text }); } else send('mock:log', m.msg || { text: m.text }); }
+    });
+    p.on('exit', () => { if (mockProc === p) { mockProc = null; mockOpts = null; send('mock:state', { on: false }); } });
+    p.on('spawn', () => p.postMessage({ type: 'start', opts }));
+  });
 }
 
 function createWindow() {
@@ -55,11 +75,16 @@ ipcMain.handle('sip:hangupAll', () => client.hangupAll());
 
 ipcMain.handle('load:start', (_, cfg, test) => {
   loadSeries = []; loadReq = { cfg: { ...cfg, password: undefined }, test: { ...test, passTpl: undefined } };
+  e2eActive = !!(test && test.e2e && mockProc); loadVendor = mockOpts ? { ...mockOpts } : null;
   getLoad().postMessage({ type: 'start', cfg, test }); return { ok: true };
 });
 ipcMain.handle('load:stop', () => { if (loadProc) loadProc.postMessage({ type: 'stop' }); return { ok: true }; });
 ipcMain.handle('load:kill', () => { if (loadProc) loadProc.kill(); return { ok: true }; });
 
+ipcMain.handle('mock:start', (_, o) => startMock(o || {}));
+ipcMain.handle('mock:stop', () => { if (mockProc) { mockProc.kill(); mockProc = null; mockOpts = null; send('mock:state', { on: false }); send('mock:log', { key: 'Vendor stopped', text: 'Vendor stopped' }); } return { ok: true }; });
+ipcMain.handle('sys:ips', () => Object.entries(os.networkInterfaces()).flatMap(([name, list]) =>
+  (list || []).filter(i => i.family === 'IPv4' && !i.internal).map(i => ({ name, address: i.address }))));
 ipcMain.handle('reports:list', () => getReports().list());
 ipcMain.handle('reports:get', (_, id) => getReports().get(id));
 ipcMain.handle('reports:delete', (_, id) => getReports().remove(id));
@@ -99,5 +124,5 @@ ipcMain.handle('file:save', async (_, text, name) => {
 });
 
 app.whenReady().then(createWindow);
-app.on('window-all-closed', () => { client.disconnect(); if (loadProc) loadProc.kill(); setTimeout(() => app.quit(), 400); });
+app.on('window-all-closed', () => { client.disconnect(); if (loadProc) loadProc.kill(); if (mockProc) mockProc.kill(); setTimeout(() => app.quit(), 400); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

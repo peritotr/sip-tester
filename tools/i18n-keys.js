@@ -9,7 +9,7 @@ const unq = s => s.replace(/\\'/g, "'").replace(/\\"/g, '"');
 
 // JS: t('…'), I18N.t('…'), msg('…'), err('…'), key: '…', label: '…' (single-quoted literals only)
 const jsFiles = ['ui/renderer.js', 'ui/load.js', 'ui/reports-ui.js', 'ui/report.js', 'ui/analysis.js', 'ui/web-api.js',
-  'load-engine.js', 'sip-core.js', 'sip-client.js', 'server.js', 'main.js'];
+  'load-engine.js', 'sip-core.js', 'sip-client.js', 'server.js', 'main.js', 'ui/vendor.js', 'mock-vendor.js'];
 const jsRe = [/\b(?:t|I18N\.t|msg|err|setPhase)\(\s*'((?:[^'\\]|\\.)*)'/g, /\b(?:t|I18N\.t)\(\s*\"((?:[^\"\\]|\\.)*)\"/g, /\b_event\(\s*'\w+',\s*'((?:[^'\\]|\\.)*)'/g, /\b(?:key|infoKey|label):\s*'((?:[^'\\]|\\.)*)'/g, /[{,]\s*error:\s*'((?:[^'\\]|\\.)*)'/g];
 for (const f of jsFiles) {
   const src = fs.readFileSync(path.join(root, f), 'utf8');
