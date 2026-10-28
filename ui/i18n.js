@@ -221,13 +221,35 @@
     'Auth: {user} / password': 'Kimlik: {user} / şifre', 'Auth: any username / password': 'Kimlik: herhangi bir kullanıcı / şifre', 'No authentication (IP trunk)': 'Kimlik doğrulama yok (IP trunk)',
     'Calls {ps}/s · active {act} (peak {max}) · answered {ans} · rejected {rej} · RTP {rtp} pkt/s': 'Arama {ps}/sn · aktif {act} (tepe {max}) · cevaplanan {ans} · reddedilen {rej} · RTP {rtp} pkt/sn',
     'queue {n}': 'kuyruk {n}', 'Port {port} is already in use': 'Port {port} kullanımda', 'No permission for port {port} (choose a port above 1024)': 'Port {port} için izin yok (1024 üstü bir port seç)',
+    // ---- Several trunks / failover ----
+    'Trunk': 'Trunk', 'Trunks': "Trunk'lar", 'Trunk {name}': 'Trunk {name}', 'Remove trunk {name}': 'Trunk {name} kaldır', 'Add a backup trunk on the next port': 'Sonraki portta yedek bir trunk ekle',
+    'Every trunk needs its own port.': 'Her trunk için ayrı bir port gerekli.', 'Vendor trunk {name}': 'Vendor trunk {name}',
+    'On your PBX, send the test prefix to trunk A first and to the next trunk when A rejects the call (failover).': "PBX'inde test ön ekini önce trunk A'ya, A aramayı reddederse sıradaki trunk'a gönder (failover).",
+    'Add these as trunks on your PBX (A first, then the backups):': "PBX'inde bunları trunk olarak tanımla (önce A, sonra yedekler):",
+    'Taken by trunk': 'Trunk başına alınan', 'Failovers': 'Yedek hatta geçiş', 'Failover': 'Yedek hat', 'Failover delay p50 / p95': 'Yedek hat gecikmesi p50 / p95', 'Rejected by all trunks': "Tüm trunk'larca reddedilen",
+    'Calls each trunk took (answered or rang), as a share of the calls that reached the vendor': "Her trunk'ın aldığı aramalar (cevapladığı ya da çaldırdığı), vendor'a ulaşan aramalar içindeki payı",
+    'Calls a trunk rejected that the PBX then sent to another trunk, which took them': "Bir trunk'ın reddettiği ve PBX'in başka bir trunk'a gönderip orada alınan aramalar",
+    'First attempt on any trunk → attempt that a trunk took: the extra time a failover costs': "Herhangi bir trunk'a ilk deneme → bir trunk'ın aldığı deneme: yedek hatta geçişin eklediği süre",
+    'Calls every trunk they reached rejected': "Ulaştıkları her trunk'ın reddettiği aramalar",
+    'Trunk {name}: {att} attempts, {acc} taken, {rej} rejected': 'Trunk {name}: {att} deneme, {acc} alınan, {rej} reddedilen',
+    'Trunk {name}: attempts · taken · rejected': 'Trunk {name}: deneme · alınan · reddedilen',
+    'Failover (first trunk → taken)': 'Yedek hat (ilk trunk → alındı)', 'Failover: first trunk → taken (p50/p95/p99/max)': 'Yedek hat: ilk trunk → alındı (p50/p95/p99/max)',
+    'Failovers to another trunk': "Başka trunk'a geçiş", 'First call that failed over to another trunk': "Başka bir trunk'a geçen ilk arama",
+    'Failover to the backup trunk became steady': 'Yedek trunk\'a geçiş süreklileşti', 'Failover · ~{tps} {unit}': 'Yedek hat · ~{tps} {unit}',
+    'Calls taken by trunk: {list}.': "Trunk'ların aldığı aramalar: {list}.",
+    '{n} calls ({pct}%) failed over: a trunk rejected them and the PBX sent them to another trunk. Failover added p50 {p50} ms, p95 {p95} ms before a trunk took the call.':
+      "{n} arama (%{pct}) yedek hatta geçti: bir trunk reddetti, PBX başka bir trunk'a gönderdi. Yedek hatta geçiş, bir trunk aramayı alana kadar p50 {p50} ms, p95 {p95} ms ekledi.",
+    'Failover started at {time}, at about {tps} {unit}.': "Yedek hatta geçiş {time}'de, yaklaşık {tps} {unit} yükte başladı.",
+    'Trunks rejected calls but the PBX did not send any of them to another trunk: check the failover rule on the PBX.': "Trunk'lar arama reddetti ama PBX bunların hiçbirini başka bir trunk'a göndermedi: PBX'teki yedek hat kuralını kontrol et.",
+    'No trunk rejected a call, so no failover was needed.': 'Hiçbir trunk arama reddetmedi; yedek hatta geçiş gerekmedi.',
+    '{n} calls were rejected by every trunk they reached.': "{n} arama ulaştığı her trunk tarafından reddedildi.",
     // ---- End-to-end ----
     'End-to-end via vendor': 'Vendor üzerinden uçtan uca', 'End-to-end': 'Uçtan uca',
     "The trailing X's of the destination carry a call number; the built-in vendor reads it back when your PBX routes the call to it. Measures PBX routing delay, calls that never reached the trunk and duplicates.":
       "Aranan numaranın sondaki X'leri bir arama numarası taşır; PBX aramayı dahili vendor'a yönlendirdiğinde vendor bunu okur. PBX yönlendirme gecikmesini, trunk'a hiç ulaşmayan aramaları ve çiftleri ölçer.",
     'End-to-end p95 ≤ (ms)': 'Uçtan uca p95 ≤ (ms)', 'Not reached ≤ %': 'Ulaşmayan ≤ %', 'Reached the vendor': "Vendor'a ulaşan", 'Not reached': 'Ulaşmayan', 'Duplicates': 'Çift',
     'Calls that never arrived at the vendor: rejected or lost inside the PBX (includes calls still in progress while the test runs)': "Vendor'a hiç gelmeyen aramalar: PBX içinde reddedilen veya kaybolanlar (test sürerken devam edenler de dahil)",
-    'The same call arrived at the vendor more than once (PBX retry or failover)': "Aynı arama vendor'a birden fazla kez geldi (PBX yeniden deneme veya yedek hat)",
+    'The same call was taken by the vendor more than once (a failover after a rejection is not a duplicate)': "Aynı arama vendor tarafından birden fazla kez alındı (bir retten sonra yedek hatta geçiş çift sayılmaz)",
     'Routing delay p50 / p95 / p99': 'Yönlendirme gecikmesi p50 / p95 / p99',
     'INVITE sent by the client → INVITE received by the vendor: the time the PBX needs to route the call': "Client'ın gönderdiği INVITE → vendor'a gelen INVITE: PBX'in aramayı yönlendirmek için harcadığı süre",
     'incl. in progress': 'devam edenler dahil', '{n} unknown': '{n} bilinmeyen', 'INVITE → vendor (routing)': 'INVITE → vendor (yönlendirme)', 'Routing p95': 'Yönlendirme p95',
@@ -242,7 +264,7 @@
     'All {n} calls reached the vendor through the PBX.': "{n} aramanın tamamı PBX üzerinden vendor'a ulaştı.",
     'PBX routing delay (client INVITE → vendor INVITE): p50 {p50} ms, p95 {p95} ms, p99 {p99} ms.': 'PBX yönlendirme gecikmesi (client INVITE → vendor INVITE): p50 {p50} ms, p95 {p95} ms, p99 {p99} ms.',
     'PBX routing delay rose at {time}, at about {tps} {unit} (p95 {base} → {p95} ms): the PBX takes longer to send calls to the trunk.': "PBX yönlendirme gecikmesi {time}'de, yaklaşık {tps} {unit} yükte yükseldi (p95 {base} → {p95} ms): PBX aramaları trunk'a daha geç gönderiyor.",
-    '{n} calls reached the vendor more than once (PBX retry or failover).': "{n} arama vendor'a birden fazla kez ulaştı (PBX yeniden deneme veya yedek hat).",
+    '{n} calls were taken by the vendor more than once: the PBX sent the same call again after a trunk had already taken it.': "{n} arama vendor tarafından birden fazla kez alındı: PBX, bir trunk aramayı zaten almışken aynı aramayı yeniden gönderdi.",
     '{n} calls arrived at the vendor with a number the test did not send. The PBX may rewrite the dialled number, or other traffic reaches the vendor.': "{n} arama vendor'a testin göndermediği bir numarayla geldi. PBX aranan numarayı değiştiriyor olabilir ya da vendor'a başka trafik geliyor.",
     'Routing delay p95 (PBX)': 'Yönlendirme gecikmesi p95 (PBX)', 'ms · {pct} reached the vendor': "ms · {pct} vendor'a ulaştı", 'Duplicates at the vendor': "Vendor'da çift",
     'Unknown numbers at the vendor': "Vendor'da bilinmeyen numara", 'Routing: INVITE → vendor (p50/p95/p99/max)': 'Yönlendirme: INVITE → vendor (p50/p95/p99/maks)',
@@ -270,8 +292,9 @@
   function msg(m) {
     if (m == null) return '';
     if (typeof m === 'string') return t(m);
-    if (m.key) return t(m.key, m.p);
-    return m.text != null ? t(m.text) : String(m);
+    const pre = m.trunk ? m.trunk + ': ' : ''; // messages from one of several vendor trunks
+    if (m.key) return pre + t(m.key, m.p);
+    return m.text != null ? pre + t(m.text) : String(m);
   }
   function apply(rootEl) {
     if (!win) return;

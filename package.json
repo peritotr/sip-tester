@@ -1,7 +1,7 @@
 {
   "name": "sip-tester",
   "productName": "SIP Tester",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "SIP load tester for PBXes and SIP servers: calls (INVITE) with light RTP, registration storms and OPTIONS, step tests and performance reports — desktop app and Docker web server",
   "keywords": [
     "sip",

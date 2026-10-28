@@ -39,6 +39,7 @@ SIP Tester (dahililer) ──INVITE──▶  PBX  ──INVITE──▶  SIP Te
 - **Hafif RTP**: en fazla N aramada 20 ms G.711; paket kaybı, jitter, sessiz aramalar ve echo dahilisinde **gidiş-dönüş süresi**
 - Kırılma noktasını otomatik bulan **kademeli testler**
 - Opsiyonel digest kimlik doğrulamalı **dahili vendor trunk**: cevaplar, RTP'yi yansıtır, yavaş veya dolu bir operatör gibi davranabilir (gecikme, CPS sınırı, kanal sınırı, meşgul/hata %, erken kapatma)
+- **Birden fazla trunk ve yedek hat (failover)**: bir ana ve en fazla üç yedek trunk; her aramayı hangi trunk'ın aldığı, kaç aramanın yedek hatta geçtiği ve bunun ne kadar süre eklediği
 - PBX içinden **uçtan uca takip**: yönlendirme gecikmesi, ulaşmayan ve çift aramalar
 - Aramaları çok sayıda dahiliye yaymak veya kayıt fırtınası oluşturmak için **hesap rotasyonu** (`1000-1499`, şifre şablonu `pw{user}`)
 - SIP'te önemli olanı sayar: **ASR, PDD, 100 Trying süresi, 503'ler, zaman aşımları, yeniden gönderimler, sunucunun düşürdüğü aramalar, başarısız BYE'ler**
@@ -62,6 +63,7 @@ SIP Tester (dahililer) ──INVITE──▶  PBX  ──INVITE──▶  SIP Te
 | Echo gidiş-dönüş | Her paket gönderim zamanını taşır; echo dahilisi geri gönderince gidiş-dönüş ölçülür. |
 | **Yönlendirme gecikmesi** (uçtan uca) | Client'ın gönderdiği INVITE → dahili vendor'a gelen INVITE: PBX'in aramayı trunk'a yönlendirme süresi. Yalnızca *Vendor üzerinden uçtan uca* açıkken. |
 | Ulaşmayan | INVITE'ı vendor'a hiç gelmeyen aramalar: PBX içinde reddedilen veya kaybolanlar. |
+| Yedek hatta geçiş (birden fazla trunk) | Bir trunk aramayı reddetti (503, 486, …) ve PBX aramayı başka bir trunk'a gönderdi, o da aldı. **Geçiş gecikmesi**: herhangi bir trunk'a ilk deneme → aramanın alındığı deneme. İki kez alınan arama çifttir; yedek hatta geçiş çift sayılmaz. |
 | Kayıt / OPTIONS gecikmesi | İstek → nihai yanıt, 401 sorgu turu **dahil**. |
 
 Digest sorguları (401/407) otomatik cevaplanır ve sayılır; hata sayılmaz.
@@ -113,6 +115,8 @@ Konteyner host ağını kullanır: SIP ve RTP çalışma anında seçilen UDP po
 2. **PBX'te bu adrese bir trunk** ve test ön ekini (ör. `8XXXXXXX`) ona gönderen bir dış hat kuralı tanımla. Asterisk örneği İngilizce README'de.
 3. **Yük testi → Aramalar**: aranan `8XXXXXXX` (sonda en az 4 X; PBX numaranın son hanelerini trunk'a değiştirmeden geçirmeli), **Vendor üzerinden uçtan uca** kutusunu işaretle.
 4. Rapor yönlendirme gecikmesini, ulaşan / ulaşmayan / çift aramaları ve yönlendirme gecikmesinin başladığı yükü ekler. Dolu bir trunk (vendor'da kanal sınırı) *"tüm aramalar vendor'a ulaştı; hatalar trunk tarafında oldu"* olarak görünür.
+
+**Trunk'lar arası yedek hat (failover).** Vendor panelinde **+ Trunk** ile ikinci bir trunk ekle (sonraki portu alır, ör. `5081`), yük altında dolması için trunk A'ya kanal sınırı ver ve PBX'te yedek kuralı tanımla (Asterisk örneği İngilizce README'de). Kademeli testte rapor, yedek hatta geçişin hangi yükte başladığını, kademe başına payını, arama kurulumuna ne eklediğini ve tek trunk'lı koşuya göre kırılma noktasının kayıp kaymadığını gösterir.
 
 **Eşzamanlılık sınırı.** Eşzamanlı arama ≈ CPS × (çalma + konuşma süresi). 100 CPS ve 30 sn'lik aramalar ~3.000 eşzamanlı arama demektir; *Maks. eşzamanlı arama* bunun üstünde olmalı, yoksa hedef hıza ulaşılamaz (araç başlatmadan önce uyarır).
 

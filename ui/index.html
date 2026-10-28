@@ -65,6 +65,8 @@
     <h3 data-i18n>Vendor (built-in trunk)</h3>
     <p class="muted small" data-i18n>A fake carrier your PBX sends calls to over a trunk. It answers, echoes the audio back and can act slow or full on purpose. Used for end-to-end measurement.</p>
     <label><span data-i18n>Listen on</span> <select id="mockHost"><option value="127.0.0.1" data-i18n>This machine only (127.0.0.1)</option><option value="0.0.0.0" data-i18n>Network (0.0.0.0)</option></select></label>
+    <div class="trunks" id="mockTrunks"></div>
+    <p class="muted small" id="mockTrunkHint" hidden data-i18n>On your PBX, send the test prefix to trunk A first and to the next trunk when A rejects the call (failover).</p>
     <div class="grid2">
       <label title="UDP and TCP on the same port" data-i18n-attr="title"><span>Port</span> <input id="mockPort" type="number" value="5080"></label>
       <label title="Sends 180 Ringing after this delay" data-i18n-attr="title"><span data-i18n>Ring after (ms)</span> <input id="mockRing" type="number" value="0" min="0"></label>
@@ -204,8 +206,14 @@
       <div class="kpis e2ek sc-call" id="e2ePanel">
         <div class="kpi"><span data-i18n>Reached the vendor</span><b id="eRx">—</b></div>
         <div class="kpi"><span title="Calls that never arrived at the vendor: rejected or lost inside the PBX (includes calls still in progress while the test runs)" data-i18n-attr="title" data-i18n>Not reached</span><b id="eMiss">—</b></div>
-        <div class="kpi"><span title="The same call arrived at the vendor more than once (PBX retry or failover)" data-i18n-attr="title" data-i18n>Duplicates</span><b id="eDup">—</b></div>
+        <div class="kpi"><span title="The same call was taken by the vendor more than once (a failover after a rejection is not a duplicate)" data-i18n-attr="title" data-i18n>Duplicates</span><b id="eDup">—</b></div>
         <div class="kpi"><span title="INVITE sent by the client → INVITE received by the vendor: the time the PBX needs to route the call" data-i18n-attr="title" data-i18n>Routing delay p50 / p95 / p99</span><b id="eLat">—</b></div>
+      </div>
+      <div class="kpis e2ek sc-call" id="trPanel" hidden>
+        <div class="kpi"><span title="Calls each trunk took (answered or rang), as a share of the calls that reached the vendor" data-i18n-attr="title" data-i18n>Taken by trunk</span><b id="eTr">—</b></div>
+        <div class="kpi"><span title="Calls a trunk rejected that the PBX then sent to another trunk, which took them" data-i18n-attr="title" data-i18n>Failovers</span><b id="eFo">—</b></div>
+        <div class="kpi"><span title="First attempt on any trunk → attempt that a trunk took: the extra time a failover costs" data-i18n-attr="title" data-i18n>Failover delay p50 / p95</span><b id="eFoLat">—</b></div>
+        <div class="kpi"><span title="Calls every trunk they reached rejected" data-i18n-attr="title" data-i18n>Rejected by all trunks</span><b id="eAllRej">—</b></div>
       </div>
       <div class="kpis rtpk sc-call" id="rtpPanel">
         <div class="kpi"><span data-i18n>RTP packets tx / rx</span><b id="rPkts">—</b></div>

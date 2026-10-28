@@ -49,6 +49,15 @@ class ReportStore {
   }
 }
 
+// Vendor settings without passwords, with the ports the trunks actually got (port 0 = picked by the OS)
+function vendorPublic(opts, ports) {
+  if (!opts) return null;
+  const o = { ...opts, password: undefined };
+  if (ports && ports.length) o.port = ports[0];
+  if (Array.isArray(o.trunks)) o.trunks = o.trunks.map((t, i) => ({ ...t, password: undefined, port: ports && ports[i] != null ? ports[i] : t.port }));
+  return o;
+}
+
 // Combines the engine's 'done' output and the start request into one report
 function assembleReport({ done, req, series, vendor, app }) {
   const cfg = req && req.cfg || {};
@@ -61,8 +70,8 @@ function assembleReport({ done, req, series, vendor, app }) {
     totals: done.totals,
     series: series && series.length ? series : done.series,
     events: done.events || [],
-    vendor: vendor ? { opts: { ...vendor, password: undefined } } : null,
+    vendor: vendor ? { opts: vendorPublic(vendor) } : null,
   };
 }
 
-module.exports = { ReportStore, assembleReport };
+module.exports = { ReportStore, assembleReport, vendorPublic };

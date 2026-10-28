@@ -173,4 +173,12 @@ select.lang{min-width:52px}
 .ctitle .legend{flex-wrap:wrap;justify-content:flex-end;row-gap:2px}
 #view-load.noe2e .sc-e2e,#view-load.noe2e .e2ek{display:none}
 #mockAddr b{color:var(--ok)}
+.trunks{display:flex;gap:4px;margin:2px 0 8px}
+.trunks button{border:1px solid var(--line);background:transparent;color:var(--muted);padding:3px 10px;font-size:12px;border-radius:7px}
+.trunks button.on{background:var(--panel2);color:var(--text);border-color:var(--accent)}
+.trunks button.add{border-style:dashed}
+.trunks .spacer{flex:1}
+#mockStats{white-space:pre-wrap}
 #mockLog{max-height:60px;overflow:auto;white-space:pre-wrap}
+
+[hidden]{display:none!important}

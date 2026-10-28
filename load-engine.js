@@ -85,7 +85,7 @@ class LoadEngine extends EventEmitter {
         if (ks.some(k => k < 4)) throw err('End-to-end measurement needs at least 4 X at the end of the destination (e.g. 8XXXXXXX)');
         if (new Set(ks).size > 1) throw err('End-to-end measurement: every destination needs the same number of trailing X');
         const k = ks[0];
-        this.e2e = { k, mod: 10 ** k, seq: 0, pend: new Map(), sent: 0, reached: 0, dup: 0, unmatched: 0 };
+        this.e2e = { k, mod: 10 ** k, seq: 0, pend: new Map(), sent: 0, reached: 0, dup: 0, unmatched: 0, trunks: [], fo: 0, foOk: 0, allRej: 0 };
         this.dsts = this.dsts.map(d => d.slice(0, d.length - k));
       }
     }
@@ -103,7 +103,7 @@ class LoadEngine extends EventEmitter {
       completed: 0, dropped: 0, byeFail: 0, byeTimeout: 0, noAnswer: 0, maxActive: 0, windowFullMs: 0,
       rtpCalls: 0, rtpTx: 0, rtpRx: 0, rtpExpected: 0, rtpLost: 0, noMedia: 0 };
     this.S = this._emptySec();
-    this.e2eAll = new Hist();
+    this.e2eAll = new Hist(); this.foAll = new Hist();
     this.latAll = new Hist(); this.ansAll = new Hist(); this.t100All = new Hist(); this.byeAll = new Hist(); this.jitAll = new Hist(); this.rttAll = new Hist();
     this.calls = new Map(); this.active = 0; this.rateFactor = 1; this.series = [];
     this.hooks = this._callHooks(); // fresh per test: the hooks capture this test's counters
@@ -139,7 +139,7 @@ class LoadEngine extends EventEmitter {
   }
 
   _emptySec() {
-    return { sent: 0, ok: 0, err: 0, thr: 0, to: 0, bye: 0, drop: 0, ch: 0, e2eRx: 0, lat: new Hist(), ans: new Hist(), t100: new Hist(), byeLat: new Hist(), e2e: new Hist() };
+    return { sent: 0, ok: 0, err: 0, thr: 0, to: 0, bye: 0, drop: 0, ch: 0, e2eRx: 0, e2eFo: 0, e2eTr: [], lat: new Hist(), ans: new Hist(), t100: new Hist(), byeLat: new Hist(), e2e: new Hist() };
   }
 
   // Token bucket: permits accrue every 2 ms; a call/request starts while the concurrency limit has room
@@ -212,7 +212,7 @@ class LoadEngine extends EventEmitter {
     if (this.e2e) {
       const E = this.e2e, id = String(E.seq++ % E.mod).padStart(E.k, '0');
       dst = dst.replace(/[xX]/g, () => String((Math.random() * 10) | 0)) + id;
-      E.pend.set(id, { t0: epoch(), seen: false }); E.sent++;
+      E.pend.set(id, { t0: epoch(), n: 0 }); E.sent++;
     } else if (/[xX]/.test(dst)) dst = dst.replace(/[xX]/g, () => String((Math.random() * 10) | 0));
     let rtp = null;
     if (T.rtp && this.pool.sessions.size < T.rtpMax) rtp = this.pool.take(T.codec);
@@ -322,16 +322,36 @@ class LoadEngine extends EventEmitter {
   }
 
   // ---------- End-to-end: calls arriving at the built-in vendor ----------
-  // list: [[dialled user, epoch ms], …] forwarded from the vendor process
+  // list: [[dialled user, epoch ms, trunk, code], …] forwarded from the vendor process. code 0 = the trunk took the call,
+  // otherwise the trunk rejected it (503, 486, …). With several trunks one call can arrive more than once: a rejection on
+  // trunk A followed by an attempt on trunk B is a failover, not a duplicate. A duplicate is a call taken twice.
   addArrivals(list) {
     const E = this.e2e; if (!E || !this.running) return;
-    for (const [user, at] of list) {
+    for (const [user, at, trunk = 0, code = 0] of list) {
       const digits = String(user || '').replace(/\D/g, '');
       const e = digits.length >= E.k ? E.pend.get(digits.slice(-E.k)) : undefined;
       if (!e) { E.unmatched++; continue; }
-      if (e.seen) { E.dup++; if (!this.flags.dup) { this.flags.dup = true; this._event('error', 'First call that reached the vendor twice'); } continue; }
-      e.seen = true; E.reached++; this.S.e2eRx++;
-      const l = Math.max(0, at - e.t0); this.S.e2e.add(l); this.e2eAll.add(l);
+      const tr = E.trunks[trunk] || (E.trunks[trunk] = { att: 0, acc: 0, rej: 0 });
+      tr.att++;
+      if (!e.n) { // first time the call shows up anywhere: PBX routing delay
+        e.n = 0; e.at = at; E.reached++; this.S.e2eRx++;
+        const l = Math.max(0, at - e.t0); this.S.e2e.add(l); this.e2eAll.add(l);
+      }
+      e.n++;
+      if (code) {
+        tr.rej++;
+        if (!e.acc && !e.allRej) { e.allRej = true; E.allRej++; } // rejected so far by every trunk it tried
+        continue;
+      }
+      tr.acc++; this.S.e2eTr[trunk] = (this.S.e2eTr[trunk] || 0) + 1;
+      if (e.acc) { E.dup++; if (!this.flags.dup) { this.flags.dup = true; this._event('error', 'First call that reached the vendor twice'); } continue; }
+      e.acc = true;
+      if (e.allRej) { e.allRej = false; E.allRej--; }
+      if (e.n > 1) { // taken only after one or more rejections: a failover (or a retry on the same trunk)
+        E.fo++; this.S.e2eFo++;
+        const d = Math.max(0, at - e.at); this.foAll.add(d);
+        if (!this.flags.fo) { this.flags.fo = true; this._event('throttle', 'First call that failed over to another trunk'); }
+      }
     }
   }
 
@@ -354,7 +374,11 @@ class LoadEngine extends EventEmitter {
     };
     if (this.t.scenario === 'call') {
       Object.assign(row, { ansP50: an.p50, ansP95: an.p95, t100P95: t1.p95, byeTps: S.bye / dt, dropTps: S.drop / dt, byeP95: by.p95 });
-      if (this.e2e) { const e = S.e2e.summary(); Object.assign(row, { e2eRxTps: S.e2eRx / dt, e2eP50: e.p50, e2eP95: e.p95, e2eP99: e.p99 }); }
+      if (this.e2e) {
+        const e = S.e2e.summary(); Object.assign(row, { e2eRxTps: S.e2eRx / dt, e2eP50: e.p50, e2eP95: e.p95, e2eP99: e.p99 });
+        // Several trunks: calls taken per second on each, and failovers per second
+        if (this.e2e.trunks.length > 1) Object.assign(row, { e2eFoTps: S.e2eFo / dt, e2eTr: this.e2e.trunks.map((_, i) => (S.e2eTr[i] || 0) / dt) });
+      }
       if (this.t.rtp && this.pool) {
         // Media over the last second across live media calls
         let rx = 0, exp = 0, jit = 0, jn = 0, n = 0; const rtt = new Hist();
@@ -380,7 +404,8 @@ class LoadEngine extends EventEmitter {
       lat: this.latAll.summary(), errs: { ...this.G.errs } };
     if (this.t.scenario === 'call') Object.assign(T, { ans: this.ansAll.summary(), t100: this.t100All.summary(), bye: this.byeAll.summary(), jitter: this.jitAll.summary(), rtt: this.rttAll.summary(),
       rtpLossPct: this.G.rtpExpected ? this.G.rtpLost / this.G.rtpExpected * 100 : null, asr: this.G.sent ? this.G.ok / this.G.sent * 100 : null });
-    if (this.e2e) { const E = this.e2e; T.e2e = { sent: E.sent, reached: E.reached, missing: Math.max(0, E.sent - E.reached), dup: E.dup, unmatched: E.unmatched, lat: this.e2eAll.summary(), digits: E.k }; }
+    if (this.e2e) { const E = this.e2e; T.e2e = { sent: E.sent, reached: E.reached, missing: Math.max(0, E.sent - E.reached), dup: E.dup, unmatched: E.unmatched, lat: this.e2eAll.summary(), digits: E.k,
+      trunks: E.trunks.map(x => x ? { ...x } : { att: 0, acc: 0, rej: 0 }), failover: E.fo, allRejected: E.allRej, foLat: this.foAll.summary() }; }
     return T;
   }
 

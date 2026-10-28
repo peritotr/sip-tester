@@ -7,7 +7,8 @@
 //       user / password (digest auth required from the PBX when password is set; user empty = any username),
 //       ringMs (180 after), answerMs (200 after), hangupAfterMs (vendor sends BYE; 0 = never),
 //       maxCps (503 above), maxChannels (503 when that many calls are up), capacity (requests processed per second; the rest queue up),
-//       busyPct (486), failPct + failCode, dropPct (no response at all), echo (RTP back, default true)
+//       busyPct (486), failPct + failCode, dropPct (no response at all), echo (RTP back, default true),
+//       trunk (index reported with arrivals when several trunks run side by side; see mock-worker.js)
 // Legacy test options still accepted: tcp (→ transports ['tcp']), auth { realm, password | passwordIsUser }, authInvite.
 const EventEmitter = require('events');
 const dgram = require('dgram');
@@ -208,15 +209,18 @@ class MockVendor extends EventEmitter {
       this.stats.invites++; this.sec.inv++;
       if (o.dropPct && Math.random() * 100 < o.dropPct) { this.stats.dropped++; this.seen.delete(key); return; }
       if (o.authInvite && !this._authOk(m, 'INVITE')) return send(this._challenge(m, 407));
-      // Every authenticated new call is an arrival (end-to-end tracking), whatever happens to it next
-      this.emit('arrival', { user: userOf(m.uri) || userOf(uriOf(hdr(m, 'to'))), at: epoch(), callId: m.callId });
+      // Every authenticated new call is an arrival (end-to-end tracking). It is reported once the vendor has decided
+      // what to do with it: code 0 = taken (rings / answers), otherwise the rejection code. The time is when it arrived.
+      const user = userOf(m.uri) || userOf(uriOf(hdr(m, 'to'))), at = epoch();
+      const arrive = code => this.emit('arrival', { user, at, callId: m.callId, code, trunk: o.trunk || 0 });
       const nowS = Date.now(); if (nowS - this.secAt >= 1000) { this.secAt = nowS; this.secCount = 0; }
-      if (o.maxCps && ++this.secCount > o.maxCps) { this.stats.rejected503++; this.sec.rej++; return send(this._resp(m, 503, 'Service Unavailable', 'Retry-After: 1\r\n')); }
+      if (o.maxCps && ++this.secCount > o.maxCps) { this.stats.rejected503++; this.sec.rej++; arrive(503); return send(this._resp(m, 503, 'Service Unavailable', 'Retry-After: 1\r\n')); }
       send(this._resp(m, 100, 'Trying'));
       const work = () => {
-        if (o.maxChannels && this.calls.size >= o.maxChannels) { this.stats.full++; this.sec.rej++; return send(this._resp(m, 503, 'Service Unavailable', 'Reason: Q.850;cause=34;text="No circuit/channel available"\r\n')); }
-        if (o.busyPct && Math.random() * 100 < o.busyPct) { this.stats.busy++; this.sec.rej++; return send(this._resp(m, 486)); }
-        if (o.failPct && Math.random() * 100 < o.failPct) { this.stats.failed++; this.sec.rej++; return send(this._resp(m, o.failCode)); }
+        if (o.maxChannels && this.calls.size >= o.maxChannels) { this.stats.full++; this.sec.rej++; arrive(503); return send(this._resp(m, 503, 'Service Unavailable', 'Reason: Q.850;cause=34;text="No circuit/channel available"\r\n')); }
+        if (o.busyPct && Math.random() * 100 < o.busyPct) { this.stats.busy++; this.sec.rej++; arrive(486); return send(this._resp(m, 486)); }
+        if (o.failPct && Math.random() * 100 < o.failPct) { this.stats.failed++; this.sec.rej++; arrive(o.failCode); return send(this._resp(m, o.failCode)); }
+        arrive(0);
         const r = this.rtp[(this.rr = ((this.rr || 0) + 1) % this.rtp.length)];
         const c = { m, dest, answered: false };
         this.calls.set(m.callId, c);

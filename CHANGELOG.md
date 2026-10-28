@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- Built-in vendor runs several trunks (A–D), each on its own port with its own delays and limits, for testing failover between a primary and backup carriers
+- End-to-end measurement per trunk: calls taken by each trunk, failovers (rejected on one trunk, taken on another), failover delay, calls rejected by every trunk, and the load at which failover started
+- Report: trunk counters, failover column in the step table, failover line and onset marker on the load chart, one settings row per trunk; CSV adds failovers and calls per trunk
+- A failover is no longer counted as a duplicate; a duplicate is a call the vendor took twice
+
 ## 0.1.0 — preview
 
 First version.

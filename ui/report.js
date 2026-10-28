@@ -21,6 +21,7 @@
   if (!rep) { $('report').innerHTML = `<section><h2>${esc(t('Report not found'))}</h2><p class="muted">${esc(t('It may have been deleted.'))}</p></section>`; return; }
   const T = rep.totals || {}, test = rep.test || {}, S = rep.series || [], ev = rep.events || [];
   const L = T.lat || {}, steps = test.steps && test.steps.length, E = T.e2e;
+  const TR = E && E.trunks && E.trunks.length > 1 ? E.trunks : null; // several vendor trunks
   const call = (test.scenario || T.scenario) !== 'register' && (test.scenario || T.scenario) !== 'options';
   const sc = test.scenario || T.scenario || 'call';
   const U = call ? 'CPS' : 'RPS';
@@ -92,15 +93,15 @@
   <section><h2>${esc(t('Latency vs. load'))}</h2><div class="legend" id="lg3"></div><div class="chart"><canvas id="c3"></canvas></div>
     <p class="note">${esc(t('Each dot is one second: rate on the x axis, p95 latency on the y axis. Where the curve bends is the load at which the server starts adding latency'))}${a.onset ? ` (~${N(a.onset.tps)} ${U})` : ''}.</p></section>`;
 
-  if (a.steps) html += `<section><h2>${esc(t('Steps'))}</h2><table><thead><tr><th>#</th><th class="n">${esc(t('Target'))}</th><th class="n">${esc(t('Sent'))}</th><th class="n">${esc(call ? t('Answered') : t('OK'))}</th><th class="n">p50 ms</th><th class="n">p95 ms</th><th class="n">p99 ms</th>${E ? `<th class="n">${esc(t('Routing p95'))}</th>` : ''}${call ? `<th class="n">${esc(t('Active'))}</th>` : ''}<th class="n">503</th><th class="n">${esc(t('Failed'))}</th><th class="n">${esc(t('Retr.'))}</th>${call && T.rtpCalls ? `<th class="n">${esc(t('RTP loss'))}</th>` : ''}<th>${esc(t('Status'))}</th></tr></thead><tbody>
-    ${a.steps.map(s => `<tr class="st-${s.status}"><td>${s.step}</td><td class="n">${N(s.target)}</td><td class="n">${N(s.sent)}</td><td class="n">${N(s.ok)}</td><td class="n">${MS(s.p50)}</td><td class="n">${MS(s.p95)}</td><td class="n">${MS(s.p99)}</td>${E ? `<td class="n">${MS(s.e2e)}</td>` : ''}${call ? `<td class="n">${N(s.active)}</td>` : ''}<td class="n">${N(s.thr)}</td><td class="n">${N(s.err)}</td><td class="n">${N(s.retr)}</td>${call && T.rtpCalls ? `<td class="n">${PC(s.loss)}</td>` : ''}
+  if (a.steps) html += `<section><h2>${esc(t('Steps'))}</h2><table><thead><tr><th>#</th><th class="n">${esc(t('Target'))}</th><th class="n">${esc(t('Sent'))}</th><th class="n">${esc(call ? t('Answered') : t('OK'))}</th><th class="n">p50 ms</th><th class="n">p95 ms</th><th class="n">p99 ms</th>${E ? `<th class="n">${esc(t('Routing p95'))}</th>` : ''}${TR ? `<th class="n">${esc(t('Failover'))}</th>` : ''}${call ? `<th class="n">${esc(t('Active'))}</th>` : ''}<th class="n">503</th><th class="n">${esc(t('Failed'))}</th><th class="n">${esc(t('Retr.'))}</th>${call && T.rtpCalls ? `<th class="n">${esc(t('RTP loss'))}</th>` : ''}<th>${esc(t('Status'))}</th></tr></thead><tbody>
+    ${a.steps.map(s => `<tr class="st-${s.status}"><td>${s.step}</td><td class="n">${N(s.target)}</td><td class="n">${N(s.sent)}</td><td class="n">${N(s.ok)}</td><td class="n">${MS(s.p50)}</td><td class="n">${MS(s.p95)}</td><td class="n">${MS(s.p99)}</td>${E ? `<td class="n">${MS(s.e2e)}</td>` : ''}${TR ? `<td class="n">${PC(s.fo)}</td>` : ''}${call ? `<td class="n">${N(s.active)}</td>` : ''}<td class="n">${N(s.thr)}</td><td class="n">${N(s.err)}</td><td class="n">${N(s.retr)}</td>${call && T.rtpCalls ? `<td class="n">${PC(s.loss)}</td>` : ''}
       <td class="${s.status === 'ok' ? 'ok' : s.status === 'saturated' ? 'err' : 'warn'}">${esc(t(STEP_STATUS[s.status] || s.status))}</td></tr>`).join('')}</tbody></table>
     <p class="note">${esc(t('The first seconds of each step are excluded as settling time. A step counts as saturated when the successful rate is below 95% of its target.'))}</p></section>`;
 
   const errRows = Object.entries(T.errs || {}).sort((x, y) => y[1] - x[1]);
   const H = (label, h) => h && h.n ? `<tr><td>${esc(label)}</td><td class="n">${MS(h.p50)} / ${MS(h.p95)} / ${MS(h.p99)} / ${MS(h.max)} ms</td></tr>` : '';
   const allEv = ev.map(e => ({ ...e, txt: evText(e) }))
-    .concat(a.onset ? [{ t: a.onset.t, type: 'onset', txt: t('Latency started rising (p95 {ms} ms)', { ms: MS(a.onset.p95) }) }] : [], a.saturation ? [{ t: a.saturation.t, type: 'sat', txt: t('Successful rate fell below the target') }] : [], a.e2eOnset ? [{ t: a.e2eOnset.t, type: 'onset', txt: t('PBX routing delay started rising (p95 {ms} ms)', { ms: MS(a.e2eOnset.p95) }) }] : [])
+    .concat(a.onset ? [{ t: a.onset.t, type: 'onset', txt: t('Latency started rising (p95 {ms} ms)', { ms: MS(a.onset.p95) }) }] : [], a.saturation ? [{ t: a.saturation.t, type: 'sat', txt: t('Successful rate fell below the target') }] : [], a.e2eOnset ? [{ t: a.e2eOnset.t, type: 'onset', txt: t('PBX routing delay started rising (p95 {ms} ms)', { ms: MS(a.e2eOnset.p95) }) }] : [], a.foOnset ? [{ t: a.foOnset.t, type: 'throttle', txt: t('Failover to the backup trunk became steady') }] : [])
     .map((e, i) => ({ ...e, i })).sort((x, y) => x.t - y.t || x.i - y.i).slice(0, 300);
   html += `<div class="grid2">
     <section><h2>${esc(t('Counters'))}</h2><table class="kv"><tbody>
@@ -113,7 +114,11 @@
       <tr><td>${esc(t('Not reached the vendor'))}</td><td class="n ${E.missing ? 'err' : ''}">${N(E.missing)}</td></tr>
       <tr><td>${esc(t('Duplicates at the vendor'))}</td><td class="n ${E.dup ? 'err' : ''}">${N(E.dup)}</td></tr>
       ${E.unmatched ? `<tr><td>${esc(t('Unknown numbers at the vendor'))}</td><td class="n warn">${N(E.unmatched)}</td></tr>` : ''}
-      ${H(t('Routing: INVITE → vendor (p50/p95/p99/max)'), E.lat)}` : ''}
+      ${H(t('Routing: INVITE → vendor (p50/p95/p99/max)'), E.lat)}
+      ${TR ? TR.map((x, i) => `<tr><td>${esc(t('Trunk {name}: attempts · taken · rejected', { name: 'ABCD'[i] }))}</td><td class="n">${N(x.att)} · ${N(x.acc)} · <span class="${x.rej ? 'warn' : ''}">${N(x.rej)}</span></td></tr>`).join('')
+        + `<tr><td>${esc(t('Failovers to another trunk'))}</td><td class="n ${E.failover ? 'warn' : ''}">${N(E.failover)}</td></tr>`
+        + `<tr><td>${esc(t('Rejected by all trunks'))}</td><td class="n ${E.allRejected ? 'err' : ''}">${N(E.allRejected)}</td></tr>`
+        + H(t('Failover: first trunk → taken (p50/p95/p99/max)'), E.foLat) : ''}` : ''}
       <tr><td>503 Service Unavailable</td><td class="n ${T.throttled ? 'warn' : ''}">${N(T.throttled)}</td></tr>
       <tr><td>${esc(t('Timeouts'))}</td><td class="n ${T.timeouts ? 'err' : ''}">${N(T.timeouts)}</td></tr>
       <tr><td>${esc(t('Retransmissions'))}</td><td class="n">${N(T.retrans)}</td></tr>
@@ -144,7 +149,9 @@
       <tr><td>RTP</td><td>${test.rtp ? t('on, up to {n} calls · {codec}', { n: N(test.rtpMax), codec: test.codec }) : t('off')}</td></tr>` : ''}
       ${sc === 'register' ? `<tr><td>${esc(t('Expiry'))}</td><td>${test.expires} s</td></tr>` : ''}
       <tr><td>${esc(t('Accounts'))}</td><td>${esc(test.users || (rep.cfg && rep.cfg.user) || '—')}</td></tr>
-      ${rep.vendor && rep.vendor.opts ? `<tr><td>${esc(t('Vendor'))}</td><td>${esc(vendorText(rep.vendor.opts))}</td></tr>` : ''}
+      ${rep.vendor && rep.vendor.opts ? (rep.vendor.opts.trunks && rep.vendor.opts.trunks.length > 1
+        ? rep.vendor.opts.trunks.map((x, i) => `<tr><td>${esc(t('Vendor trunk {name}', { name: 'ABCD'[i] }))}</td><td>${esc(vendorText({ ...x, host: rep.vendor.opts.host }))}</td></tr>`).join('')
+        : `<tr><td>${esc(t('Vendor'))}</td><td>${esc(vendorText(rep.vendor.opts))}</td></tr>`) : ''}
       ${E ? `<tr><td>${esc(t('End-to-end'))}</td><td>${esc(t('call number in the last {k} digits', { k: E.digits }))}</td></tr>` : ''}
     </tbody></table></div>
     <p class="note">${esc(t('Latency onset: p95 exceeding 2× the low-load baseline (at least +20 ms){crit} for 3 consecutive seconds. Saturation: the successful rate staying below 90% of the target for 3 seconds.', { crit: test.criteria && test.criteria.p95Max ? t(' or the acceptance limit') : '' }))}</p>
@@ -213,6 +220,7 @@
     const marks = [];
     if (a.onset) marks.push({ x: a.onset.t, color: '--warn', label: t('Latency onset · ~{tps} {unit}', { tps: N(a.onset.tps), unit: U }), row: 0 });
     if (a.e2eOnset) marks.push({ x: a.e2eOnset.t, color: '--accent', label: t('Routing delay up · ~{tps} {unit}', { tps: N(a.e2eOnset.tps), unit: U }), row: 2 });
+    if (a.foOnset) marks.push({ x: a.foOnset.t, color: '--accent', label: t('Failover · ~{tps} {unit}', { tps: N(a.foOnset.tps), unit: U }), row: 3 });
     if (a.saturation) marks.push({ x: a.saturation.t, color: '--err', label: t('Saturation · {tps} {unit}', { tps: N(a.saturation.ok), unit: U }), row: 1 });
     for (const e of ev.filter(e => e.type === 'session').slice(0, 10)) marks.push({ x: e.t, color: '--err' });
     const s1 = [
@@ -222,6 +230,7 @@
       { y: rows.map(r => r.thrTps), color: '--warn', width: 1.5, label: '503' },
       { y: rows.map(r => r.errTps), color: '--err', width: 1.5, label: t('Failed') },
       { y: rows.map(r => r.retrTps), color: '--violet', width: 1.25, label: t('Retransmissions') },
+      ...(TR ? [{ y: rows.map(r => r.e2eFoTps), color: '--accent', width: 1.5, dash: [3, 3], label: t('Failovers') }] : []),
     ];
     chart($('c1'), { x: tx, xMin: 0, xMax: tMax, series: s1, vmarks: marks, vbands: stepMarks, yFmt: kfmt, xFmt: mmss });
     legend($('lg1'), s1.filter(s => s.y.some(v => v > 0)));
@@ -280,12 +289,12 @@
   $('bJson').onclick = () => download(JSON.stringify(rep, null, 1), fname('json'), 'application/json');
   $('bCsv').onclick = () => {
     const tr = I18N.lang === 'tr', sep = tr ? ';' : ',', dec = tr ? ',' : '.';
-    const cols = ['t', 'step', 'target', 'sentTps', 'okTps', 'errTps', 'thrTps', 'toTps', 'retrTps', 'inflight', 'windowFull', 'bound', 'p50', 'p95', 'p99', 'max', 'ansP95', 't100P95', 'byeTps', 'dropTps', 'rtpCalls', 'rtpLoss', 'jitter', 'rttP95', 'e2eRxTps', 'e2eP50', 'e2eP95', 'e2eP99'];
-    const head = ['second', 'step', 'target', 'sent_ps', 'ok_ps', 'failed_ps', '503_ps', 'timeout_ps', 'retrans_ps', 'active', 'limit_full_ratio', 'connections', 'p50_ms', 'p95_ms', 'p99_ms', 'max_ms', 'answer_p95_ms', 'trying_p95_ms', 'bye_ps', 'dropped_ps', 'rtp_calls', 'rtp_loss_pct', 'jitter_ms', 'echo_rtt_p95_ms', 'vendor_rx_ps', 'routing_p50_ms', 'routing_p95_ms', 'routing_p99_ms'];
+    const cols = ['t', 'step', 'target', 'sentTps', 'okTps', 'errTps', 'thrTps', 'toTps', 'retrTps', 'inflight', 'windowFull', 'bound', 'p50', 'p95', 'p99', 'max', 'ansP95', 't100P95', 'byeTps', 'dropTps', 'rtpCalls', 'rtpLoss', 'jitter', 'rttP95', 'e2eRxTps', 'e2eP50', 'e2eP95', 'e2eP99', ...(TR ? ['e2eFoTps'] : [])];
+    const head = ['second', 'step', 'target', 'sent_ps', 'ok_ps', 'failed_ps', '503_ps', 'timeout_ps', 'retrans_ps', 'active', 'limit_full_ratio', 'connections', 'p50_ms', 'p95_ms', 'p99_ms', 'max_ms', 'answer_p95_ms', 'trying_p95_ms', 'bye_ps', 'dropped_ps', 'rtp_calls', 'rtp_loss_pct', 'jitter_ms', 'echo_rtt_p95_ms', 'vendor_rx_ps', 'routing_p50_ms', 'routing_p95_ms', 'routing_p99_ms', ...(TR ? ['failover_ps', ...TR.map((_, i) => `trunk_${'abcd'[i]}_taken_ps`)] : [])];
     const f = v => v == null || isNaN(v) ? '' : (Number.isInteger(v) ? String(v) : v.toFixed(2)).replace('.', dec);
     const clean = s => String(s).replace(new RegExp(sep, 'g'), ' ');
     const lvl = { ok: 'OK', warn: t('WARNING'), bad: t('ISSUE') };
-    const lines = [`# ${clean(title)}${sep}${dt(rep.createdAt)}`, ...a.findings.map(x => `# ${lvl[x.level]}${sep}${clean(x.text)}`), '', head.join(sep), ...rows.map(r => cols.map(c => f(r[c])).join(sep))];
+    const lines = [`# ${clean(title)}${sep}${dt(rep.createdAt)}`, ...a.findings.map(x => `# ${lvl[x.level]}${sep}${clean(x.text)}`), '', head.join(sep), ...rows.map(r => cols.map(c => f(r[c])).concat(TR ? TR.map((_, i) => f(r.e2eTr ? r.e2eTr[i] : null)) : []).join(sep))];
     download('﻿' + lines.join('\n'), fname('csv'), 'text/csv;charset=utf-8');
   };
   $('bPdf').onclick = async () => {

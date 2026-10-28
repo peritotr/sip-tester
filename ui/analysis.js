@@ -13,6 +13,7 @@
   const mean = a => { const v = a.filter(x => x != null && !isNaN(x)); return v.length ? v.reduce((s, x) => s + x, 0) / v.length : null; };
   const maxOf = a => { const v = a.filter(x => x != null && !isNaN(x)); return v.length ? Math.max(...v) : null; };
   const sum = a => a.reduce((s, x) => s + (x || 0), 0);
+  const pctOf = (a, b) => b > 0 ? a / b * 100 : null;
   const r0 = n => n == null ? '—' : (n < 10 && n % 1 ? n.toFixed(1) : Math.round(n).toLocaleString(locale()));
   const r1 = n => n == null ? '—' : (n < 10 ? n.toFixed(1) : Math.round(n).toString());
   const pc = n => n == null ? '—' : (n > 0 && n < 0.01 ? '<0.01' : n.toFixed(2));
@@ -36,7 +37,7 @@
     const U = call ? 'CPS' : 'RPS';
     const all = (rep.series || []).filter(r => r && r.t != null);
     const active = all.filter(r => r.sentTps > 0 || r.target > 0);
-    const out = { scenario, unit: U, findings: [], criteria: [], steps: null, curve: [], baseline: null, onset: null, e2eOnset: null, saturation: null, capacity: null, steady: null };
+    const out = { scenario, unit: U, findings: [], criteria: [], steps: null, curve: [], baseline: null, onset: null, e2eOnset: null, foOnset: null, saturation: null, capacity: null, steady: null };
     if (!active.length) { out.findings.push({ level: 'bad', text: t('Nothing was sent during the test; there is no data to analyse.') }); return out; }
     const target = Number(test.rate || test.tps) || maxOf(active.map(r => r.target)) || 0;
     // Answers lag attempts by the ring time: compare the answered rate with the target after that delay
@@ -66,6 +67,12 @@
       const lim = crit.e2eP95Max ? Math.min(thr(base.e2eP95), Number(crit.e2eP95Max)) : thr(base.e2eP95);
       const i = firstSustained(scan, r => r.e2eP95 != null && r.e2eP95 > lim, 3);
       if (i >= 0) { const r = scan[i]; out.e2eOnset = { t: r.t, tps: r.sentTps, p95: r.e2eP95, base: base.e2eP95, limit: lim, step: r.step }; }
+    }
+    // Several trunks: when the PBX started failing calls over to a backup trunk (sustained, not a one-off)
+    const hasFo = hasE2e && active.some(r => r.e2eFoTps != null);
+    if (hasFo) {
+      const i = firstSustained(active, r => r.e2eFoTps > 0 && r.e2eRxTps > 0 && r.e2eFoTps / r.e2eRxTps >= 0.01, 3);
+      if (i >= 0) { const r = active[i]; out.foOnset = { t: r.t, tps: test.steps && r.step ? test.steps[r.step - 1] : r.sentTps, step: r.step }; } // the load it started at
     }
 
     // ---------- Saturation: successful rate stays below 90% of a flat target ----------
@@ -123,7 +130,8 @@
         else if (p95 != null && p95Lim != null && p95 > p95Lim) status = 'latency';
         else if (thrN > 0 || errN > 0 || retrN > 0) status = 'warning';
         return { step: k + 1, target: tgt, sent, ok, p50: median(settled.map(r => r.p50)), p95, p99, active: median(settled.map(r => r.inflight)), thr: thrN, err: errN, retr: retrN, windowFull: wf,
-          loss: call ? mean(settled.map(r => r.rtpLoss)) : null, e2e: hasE2e ? median(settled.map(r => r.e2eP95)) : null, status };
+          loss: call ? mean(settled.map(r => r.rtpLoss)) : null, e2e: hasE2e ? median(settled.map(r => r.e2eP95)) : null,
+          fo: hasFo ? pctOf(sum(rows.map(r => r.e2eFoTps)), sum(rows.map(r => r.e2eRxTps))) : null, status };
       });
       const knee = out.steps.find(s => s.status === 'latency' || s.status === 'saturated');
       const lastGood = [...out.steps].reverse().find(s => s.status === 'ok' && (!knee || s.step < knee.step));
@@ -209,12 +217,24 @@
           : t('All {n} calls reached the vendor through the PBX.', { n: r0(E.sent) }));
         if (E.lat && E.lat.n) F('ok', t('PBX routing delay (client INVITE → vendor INVITE): p50 {p50} ms, p95 {p95} ms, p99 {p99} ms.', { p50: r1(E.lat.p50), p95: r1(E.lat.p95), p99: r1(E.lat.p99) }));
         if (out.e2eOnset) F('warn', t('PBX routing delay rose at {time}, at about {tps} {unit} (p95 {base} → {p95} ms): the PBX takes longer to send calls to the trunk.', { time: mmss(out.e2eOnset.t), tps: r0(out.e2eOnset.tps), unit: U, base: r1(out.e2eOnset.base), p95: r1(out.e2eOnset.p95) }));
+        // Several trunks: who took the calls, failover and its cost
+        const TR = E.trunks || [];
+        if (TR.length > 1) {
+          const acc = sum(TR.map(x => x.acc));
+          F('ok', t('Calls taken by trunk: {list}.', { list: TR.map((x, i) => `${'ABCD'[i]} ${r0(acc ? x.acc / acc * 100 : 0)}% (${r0(x.acc)})`).join(', ') }));
+          if (E.failover) F('warn', t('{n} calls ({pct}%) failed over: a trunk rejected them and the PBX sent them to another trunk. Failover added p50 {p50} ms, p95 {p95} ms before a trunk took the call.', {
+            n: r0(E.failover), pct: pc(E.failover / E.reached * 100), p50: r1(E.foLat && E.foLat.p50), p95: r1(E.foLat && E.foLat.p95) })
+            + (out.foOnset ? ' ' + t('Failover started at {time}, at about {tps} {unit}.', { time: mmss(out.foOnset.t), tps: r0(out.foOnset.tps), unit: U }) : ''));
+          else if (sum(TR.map(x => x.rej))) F('warn', t('Trunks rejected calls but the PBX did not send any of them to another trunk: check the failover rule on the PBX.'));
+          else F('ok', t('No trunk rejected a call, so no failover was needed.'));
+        }
+        if (E.allRejected) F('bad', t('{n} calls were rejected by every trunk they reached.', { n: r0(E.allRejected) }));
       }
       // Where did the failures happen: inside the PBX or after the call reached the trunk?
       const fails = (T.err || 0) - (T.noAnswer || 0);
       if (E.reached && fails > 0 && !E.missing) F('warn', t('Every call reached the vendor, so the {n} failures happened on the trunk side (vendor answers passed back by the PBX), not inside the PBX.', { n: r0(fails) }));
       else if (E.reached && fails > 0 && E.missing >= fails * 0.9) F('warn', t('The failed calls never reached the vendor: the PBX itself rejected or lost them.'));
-      if (E.dup) F('bad', t('{n} calls reached the vendor more than once (PBX retry or failover).', { n: r0(E.dup) }));
+      if (E.dup) F('bad', t('{n} calls were taken by the vendor more than once: the PBX sent the same call again after a trunk had already taken it.', { n: r0(E.dup) }));
       if (E.unmatched) F('warn', t('{n} calls arrived at the vendor with a number the test did not send. The PBX may rewrite the dialled number, or other traffic reaches the vendor.', { n: r0(E.unmatched) }));
     }
     if (T.throttled) F('warn', t('{n} × 503 Service Unavailable received (first at {time}).', { n: r0(T.throttled), time: mmss((ev.find(e => e.type === 'throttle') || {}).t || 0) }));

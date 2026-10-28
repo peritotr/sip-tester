@@ -7,6 +7,7 @@ const fms = n => n == null || isNaN(n) ? '—' : (n < 10 ? n.toFixed(1) : Math.r
 
 let series = [], lastResult = null, loadRunning = false, testStartedAt = null, lastTotals = null, lastReportId = null, lastVerdict = null, runScenario = null;
 let phaseMsg = null, runE2e = null;
+let foShown = false; // the failover line appears once a test with several trunks reports
 const sc = () => runScenario || val('lScenario');
 const unit = s => (s || sc()) === 'call' ? 'CPS' : 'RPS';
 
@@ -164,6 +165,7 @@ function renderTotals(T, r) {
       const q = T.rtt || {}; $('rRtt').textContent = q.n ? `${fms(q.p50)} / ${fms(q.p95)} ms` : (r && r.rttP95 != null ? fms(r.rttP95) + ' ms' : '—');
     }
   }
+  if (!T.e2e || !T.e2e.trunks || T.e2e.trunks.length < 2) $('trPanel').hidden = true;
   if (T.e2e) {
     const E = T.e2e, l = E.lat || {};
     $('eRx').textContent = fmt(E.reached) + (E.sent ? ` (${(E.reached / E.sent * 100).toFixed(E.reached === E.sent ? 0 : 2)}%)` : '');
@@ -171,12 +173,24 @@ function renderTotals(T, r) {
     $('eMiss').className = !loadRunning && E.missing ? 'err' : '';
     $('eDup').textContent = fmt(E.dup) + (E.unmatched ? ' · ' + t('{n} unknown', { n: fmt(E.unmatched) }) : ''); $('eDup').className = E.dup ? 'err' : '';
     $('eLat').textContent = l.n ? `${fms(l.p50)} / ${fms(l.p95)} / ${fms(l.p99)} ms` : '—';
+    // Several trunks: who took the calls, and how many failed over
+    const TR = E.trunks || [], multi = TR.length > 1;
+    $('trPanel').hidden = !multi;
+    if (multi !== foShown) { foShown = multi; legends(); }
+    if (multi) {
+      const acc = TR.reduce((a, x) => a + x.acc, 0);
+      $('eTr').textContent = TR.map((x, i) => `${'ABCD'[i]} ${acc ? Math.round(x.acc / acc * 100) : 0}%`).join(' · ');
+      $('eTr').title = TR.map((x, i) => t('Trunk {name}: {att} attempts, {acc} taken, {rej} rejected', { name: 'ABCD'[i], att: fmt(x.att), acc: fmt(x.acc), rej: fmt(x.rej) })).join('\n');
+      $('eFo').textContent = fmt(E.failover || 0) + (E.reached ? ` (${((E.failover || 0) / E.reached * 100).toFixed(1)}%)` : '');
+      const f = E.foLat || {}; $('eFoLat').textContent = f.n ? `${fms(f.p50)} / ${fms(f.p95)} ms` : '—';
+      $('eAllRej').textContent = fmt(E.allRejected || 0); $('eAllRej').className = !loadRunning && E.allRejected ? 'err' : '';
+    }
   }
   const errs = Object.entries(T.errs || {}).sort((a, b) => b[1] - a[1]);
   $('tErrs').innerHTML = errs.length ? errs.map(([k, v]) => `<tr><td>${esc(k)}</td><td class="r">${fmt(v)}</td></tr>`).join('') : `<tr><td class="muted">${t('No failures')}</td></tr>`;
   const H = (label, h) => h && h.n ? `<tr><td class="l">${esc(label)}</td><td class="r">${fms(h.p50)}</td><td class="r">${fms(h.p95)}</td><td class="r">${fms(h.p99)}</td><td class="r">${fms(h.max)}</td></tr>` : '';
   const rows = T.scenario === 'call'
-    ? H(t('INVITE → 100 Trying'), T.t100) + (T.e2e ? H(t('INVITE → vendor (routing)'), T.e2e.lat) : '') + H(t('PDD (INVITE → 180/183)'), T.lat) + H(t('INVITE → 200 OK'), T.ans) + H(t('BYE → 200 OK'), T.bye)
+    ? H(t('INVITE → 100 Trying'), T.t100) + (T.e2e ? H(t('INVITE → vendor (routing)'), T.e2e.lat) + (T.e2e.foLat ? H(t('Failover (first trunk → taken)'), T.e2e.foLat) : '') : '') + H(t('PDD (INVITE → 180/183)'), T.lat) + H(t('INVITE → 200 OK'), T.ans) + H(t('BYE → 200 OK'), T.bye)
     : H(t(T.scenario === 'register' ? 'REGISTER → 200 OK (with challenge)' : 'OPTIONS → response'), T.lat);
   $('tTiming').innerHTML = rows ? `<tr><td class="l">ms</td><td class="r l">p50</td><td class="r l">p95</td><td class="r l">p99</td><td class="r l">max</td></tr>${rows}` : '<tr><td class="muted">—</td></tr>';
 }
@@ -190,6 +204,7 @@ const RATE_LINES = () => [
   { k: 'thrTps', label: '503', c: '--warn' },
   { k: 'errTps', label: 'Failed', c: '--err' },
   { k: 'retrTps', label: 'Retransmissions', c: '--violet' },
+  ...(foShown ? [{ k: 'e2eFoTps', label: 'Failovers', c: '--accent', dash: true }] : []),
 ];
 const LAT_LINES = () => sc() === 'call'
   ? [{ k: 'p50', label: 'PDD p50', c: '--ok' }, { k: 'p95', label: 'PDD p95', c: '--warn' }, { k: 'p99', label: 'PDD p99', c: '--err' }, { k: 't100P95', label: '100 Trying p95', c: '--violet' }, ...((runE2e != null ? runE2e : val('lE2e')) ? [{ k: 'e2eP95', label: 'Routing p95', c: '--accent' }] : [])]
@@ -246,6 +261,7 @@ $('lCsv').onclick = () => {
   const r = lastResult || {}, T = r.totals || lastTotals || {}, l = T.lat || {}, te = r.test || {};
   const num = v => v == null || isNaN(v) ? '' : (Number.isInteger(v) ? String(v) : v.toFixed(2)).replace('.', dec);
   const row = a => a.map(v => typeof v === 'number' ? num(v) : String(v ?? '').replace(new RegExp(sep, 'g'), ' ')).join(sep);
+  const nTr = T.e2e && T.e2e.trunks ? T.e2e.trunks.length : 0, trunkCols = nTr > 1 ? T.e2e.trunks.map((_, i) => `trunk_${'abcd'[i]}_taken_ps`) : [];
   const lines = [
     '# ' + t('SIP Tester load test'),
     row(['# ' + t('Date'), testStartedAt ? testStartedAt.toISOString() : '']),
@@ -255,10 +271,11 @@ $('lCsv').onclick = () => {
     row(['# ms', 'p50', l.p50, 'p95', l.p95, 'p99', l.p99, 'max', l.max]),
     ...(T.scenario === 'call' ? [row(['# ' + t('Calls'), 'ASR %', T.asr, t('Completed'), T.completed, t('Dropped'), T.dropped, 'RTP loss %', T.rtpLossPct])] : []),
     ...(T.e2e ? [row(['# ' + t('End-to-end'), t('Reached the vendor'), T.e2e.reached, t('Not reached'), T.e2e.missing, t('Duplicates'), T.e2e.dup, 'routing p50 ms', T.e2e.lat.p50, 'p95', T.e2e.lat.p95, 'p99', T.e2e.lat.p99])] : []),
+    ...(T.e2e && T.e2e.trunks && T.e2e.trunks.length > 1 ? [row(['# ' + t('Trunks'), ...T.e2e.trunks.flatMap((x, i) => ['ABCD'[i], `${x.att}/${x.acc}/${x.rej}`]), t('Failovers'), T.e2e.failover, t('Rejected by all trunks'), T.e2e.allRejected, 'failover p95 ms', T.e2e.foLat && T.e2e.foLat.p95])] : []),
     row(['# ' + t('Failure codes'), Object.entries(T.errs || {}).map(([k, v]) => k + '=' + v).join(' ')]),
     '',
-    ['second', 'target', 'sent_ps', 'ok_ps', 'failed_ps', '503_ps', 'timeout_ps', 'retrans_ps', 'active', 'p50_ms', 'p95_ms', 'p99_ms', 'max_ms', 'answer_p95_ms', 'trying_p95_ms', 'bye_ps', 'dropped_ps', 'rtp_calls', 'rtp_loss_pct', 'jitter_ms', 'echo_rtt_p95_ms', 'vendor_rx_ps', 'routing_p50_ms', 'routing_p95_ms', 'routing_p99_ms'].join(sep),
-    ...series.map(s => row([s.t, s.target, s.sentTps, s.okTps, s.errTps, s.thrTps, s.toTps, s.retrTps, s.inflight, s.p50, s.p95, s.p99, s.max, s.ansP95, s.t100P95, s.byeTps, s.dropTps, s.rtpCalls, s.rtpLoss, s.jitter, s.rttP95, s.e2eRxTps, s.e2eP50, s.e2eP95, s.e2eP99])),
+    ['second', 'target', 'sent_ps', 'ok_ps', 'failed_ps', '503_ps', 'timeout_ps', 'retrans_ps', 'active', 'p50_ms', 'p95_ms', 'p99_ms', 'max_ms', 'answer_p95_ms', 'trying_p95_ms', 'bye_ps', 'dropped_ps', 'rtp_calls', 'rtp_loss_pct', 'jitter_ms', 'echo_rtt_p95_ms', 'vendor_rx_ps', 'routing_p50_ms', 'routing_p95_ms', 'routing_p99_ms', 'failover_ps', ...trunkCols].join(sep),
+    ...series.map(s => row([s.t, s.target, s.sentTps, s.okTps, s.errTps, s.thrTps, s.toTps, s.retrTps, s.inflight, s.p50, s.p95, s.p99, s.max, s.ansP95, s.t100P95, s.byeTps, s.dropTps, s.rtpCalls, s.rtpLoss, s.jitter, s.rttP95, s.e2eRxTps, s.e2eP50, s.e2eP95, s.e2eP99, s.e2eFoTps, ...trunkCols.map((_, i) => s.e2eTr ? s.e2eTr[i] : null)])),
   ];
   api.saveFile('﻿' + lines.join('\n'), `sip-load-test-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.csv`);
 };

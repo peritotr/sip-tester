@@ -4,7 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { SipClient } = require('./sip-client');
-const { ReportStore, assembleReport } = require('./reports');
+const { ReportStore, assembleReport, vendorPublic } = require('./reports');
 let reports = null;
 const getReports = () => reports || (reports = new ReportStore(path.join(app.getPath('userData'), 'reports')));
 
@@ -48,7 +48,7 @@ function startMock(opts) {
       if (m.type === 'log') send('mock:log', m.msg);
       else if (m.type === 'stats') send('mock:stats', m.stats);
       else if (m.type === 'arrivals') { if (e2eActive && loadProc) loadProc.postMessage({ type: 'arrivals', list: m.list }); }
-      else if (m.type === 'started') { p.started = true; mockOpts = { ...opts, password: undefined, port: m.port }; send('mock:state', { on: true, opts: mockOpts }); resolve({ ok: true }); }
+      else if (m.type === 'started') { p.started = true; mockOpts = vendorPublic(opts, m.ports || [m.port]); send('mock:state', { on: true, opts: mockOpts }); resolve({ ok: true }); }
       else if (m.type === 'error') { if (!p.started) { p.kill(); if (mockProc === p) mockProc = null; resolve({ ok: false, error: m.msg || m.text }); } else send('mock:log', m.msg || { text: m.text }); }
     });
     p.on('exit', () => { if (mockProc === p) { mockProc = null; mockOpts = null; send('mock:state', { on: false }); } });

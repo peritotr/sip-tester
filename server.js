@@ -16,7 +16,7 @@ const crypto = require('crypto');
 const { fork } = require('child_process');
 const { WebSocketServer } = require('ws');
 const { SipClient } = require('./sip-client');
-const { ReportStore, assembleReport } = require('./reports');
+const { ReportStore, assembleReport, vendorPublic } = require('./reports');
 
 const PORT = Number(process.env.PORT) || 8080;
 const HOST = process.env.HOST || '0.0.0.0';
@@ -140,7 +140,7 @@ function startMock(opts) {
       if (m.type === 'log') broadcast('mock:log', m.msg);
       else if (m.type === 'stats') broadcast('mock:stats', m.stats);
       else if (m.type === 'arrivals') { if (e2eActive && loadProc) loadProc.send({ type: 'arrivals', list: m.list }); }
-      else if (m.type === 'started') { p.started = true; state.mock = { on: true, opts: { ...opts, password: undefined, port: m.port } }; saveVendor(opts); broadcast('mock:state', state.mock); resolve({ ok: true }); }
+      else if (m.type === 'started') { p.started = true; state.mock = { on: true, opts: vendorPublic(opts, m.ports || [m.port]) }; saveVendor(opts); broadcast('mock:state', state.mock); resolve({ ok: true }); }
       else if (m.type === 'error') { if (!p.started) { p.kill(); if (mockProc === p) mockProc = null; resolve({ ok: false, error: m.msg || m.text }); } else broadcast('mock:log', m.msg || { text: m.text }); }
     });
     p.on('exit', () => { if (mockProc === p) { mockProc = null; if (state.mock.on) { state.mock = { on: false, opts: null }; broadcast('mock:state', state.mock); } } });
@@ -149,12 +149,14 @@ function startMock(opts) {
 }
 // Vendor settings are kept so the vendor comes back after a server/container restart
 const vendorFile = path.join(DATA_DIR, 'vendor.json');
-function saveVendor(opts) { try { fs.writeFileSync(vendorFile, JSON.stringify({ ...opts, password: opts.password ? encrypt(String(opts.password)) : '' }), { mode: 0o600 }); } catch {} }
+const encPw = o => ({ ...o, password: o.password ? encrypt(String(o.password)) : '' });
+const decPw = o => { try { return { ...o, password: o.password ? decrypt(o.password) : '' }; } catch { return { ...o, password: '' }; } };
+function saveVendor(opts) { try { fs.writeFileSync(vendorFile, JSON.stringify({ ...encPw(opts), trunks: Array.isArray(opts.trunks) ? opts.trunks.map(encPw) : undefined }), { mode: 0o600 }); } catch {} }
 function clearVendor() { try { fs.unlinkSync(vendorFile); } catch {} }
 function restoreVendor() {
   let o; try { o = JSON.parse(fs.readFileSync(vendorFile, 'utf8')); } catch { return; }
-  try { o.password = o.password ? decrypt(o.password) : ''; } catch { o.password = ''; }
-  startMock(o).then(r => console.log(r.ok ? `Vendor restored with its last settings (${o.host}:${o.port})` : `Could not start the vendor: ${r.error && r.error.text || r.error}`));
+  o = decPw(o); if (Array.isArray(o.trunks)) o.trunks = o.trunks.map(decPw);
+  startMock(o).then(r => console.log(r.ok ? `Vendor restored with its last settings (${o.host}:${(o.trunks || [o]).map(t => t.port).join(', ')})` : `Could not start the vendor: ${r.error && r.error.text || r.error}`));
 }
 function ips() {
   const list = Object.entries(os.networkInterfaces()).flatMap(([name, l]) => (l || []).filter(i => i.family === 'IPv4' && !i.internal).map(i => ({ name, address: i.address })));

@@ -50,6 +50,7 @@ SIP Tester (extensions) ──INVITE──▶  YOUR PBX  ──INVITE──▶  
 - **Step tests** that find the knee point automatically
 - **Built-in vendor trunk** with optional digest auth that answers, echoes RTP and can behave like a slow or full carrier (delays, CPS limit, channel limit, busy/failure %, early hang-up)
 - **End-to-end tracking** through the PBX: routing delay, calls not reached, duplicates
+- **Several trunks with failover**: run a primary and up to three backup trunks and see which one took each call, how many calls failed over and what the failover cost
 - **Account rotation** (`1000-1499`, password template `pw{user}`) to spread calls over many extensions or simulate a registration storm
 - Counts what matters in SIP: **ASR, PDD, 100 Trying time, 503s, timeouts, retransmissions, calls dropped by the server, failed BYEs**
 - **Pass / fail against your SLA**, saved reports, PDF / CSV / JSON export
@@ -78,6 +79,7 @@ SIP Tester (extensions) ──INVITE──▶  YOUR PBX  ──INVITE──▶  
 - Answers after a configurable ring and answer delay, echoes RTP (or stays silent), optionally hangs up after N seconds
 - Misbehaves on purpose: CPS limit (503), channel limit (503, cause 34), processing capacity (a queue that slows answers), busy %, failure % with a chosen code
 - **End-to-end**: in the load test, the trailing X's of the destination (`8XXXXXXX`) carry a call number; the vendor reads it back and the report shows **routing delay** (client INVITE → vendor INVITE), calls **not reached**, **duplicates**, and whether failures happened inside the PBX or on the trunk side
+- **Several trunks** (A–D), each on its own port with its own limits: the report shows the share each trunk took, **failovers** (a trunk rejected the call and the PBX sent it to another one), the **failover delay**, calls rejected by every trunk, and the load at which failover started
 
 **Performance reports**
 - Saved automatically after every load test; printable to PDF, exportable to CSV/JSON
@@ -104,6 +106,7 @@ SIP Tester (extensions) ──INVITE──▶  YOUR PBX  ──INVITE──▶  
 | Echo round trip | Every packet carries its send time; when an echo extension returns it, the round trip is measured. |
 | **Routing delay** (end-to-end) | INVITE sent by the client → INVITE received by the built-in vendor: how long the PBX takes to route the call to the trunk. Only with *End-to-end via vendor*. |
 | Not reached | Call attempts whose INVITE never arrived at the vendor: rejected or lost inside the PBX. |
+| Failover (several trunks) | A trunk rejected the call (503, 486, …) and the PBX sent it to another trunk, which took it. **Failover delay**: first attempt on any trunk → the attempt that was taken. A call taken twice is a duplicate; a failover is not. |
 | Registrations / OPTIONS latency | Request sent → final response, **including** the 401 challenge round trip. |
 
 Digest challenges (401/407) are answered automatically and counted; they are not failures.
@@ -202,6 +205,18 @@ Without Docker: `npm install --omit=dev && UI_PASSWORD=... node server.js`.
    ```
 3. **Load test → Calls**: destination `8XXXXXXX` (at least 4 trailing X; the PBX must pass the dialled number to the trunk with its last digits unchanged), tick **End-to-end via vendor**, step test as above.
 4. The report adds routing delay, reached / not reached / duplicates and a routing-delay onset. A full trunk (set a channel limit on the vendor) shows up as *"every call reached the vendor, so the failures happened on the trunk side"*.
+
+**Failover between trunks.** Add a second trunk with **+ Trunk** in the vendor panel (it takes the next port, e.g. `5081`), give trunk A a channel limit so it fills up under load, and add the backup on the PBX:
+```ini
+; pjsip.conf: a second aor/endpoint "vendorb" like "vendor" above, with contact=sip:VENDOR_IP:5081
+
+; extensions.conf
+exten => _8XXXXXXX,1,Dial(PJSIP/${EXTEN}@vendor,60)
+ same => n,GotoIf($["${DIALSTATUS}" = "CONGESTION" | "${DIALSTATUS}" = "CHANUNAVAIL"]?backup)
+ same => n,Hangup()
+ same => n(backup),Dial(PJSIP/${EXTEN}@vendorb,60)
+```
+In a step test the report shows when failover started, its share per step, what it added to call setup, and whether the knee moved compared with a run on one trunk. On Asterisk 20 in our runs, the point where latency started rising stayed at ~150 CPS, but with ~40% of calls failing over the PBX saturated at the 200 CPS step, where it had only slowed down on a single trunk.
 
 **Sizing the concurrency limit.** Simultaneous calls ≈ CPS × (ring time + hold time). 100 CPS with 30 s calls means ~3,000 simultaneous calls; set *Max concurrent calls* above that or the target rate can't be reached (the tool warns you before starting).
 

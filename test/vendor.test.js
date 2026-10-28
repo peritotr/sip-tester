@@ -74,3 +74,48 @@ test('vendor: port already in use is reported', async () => {
   await assert.rejects(new MockVendor({ port: a.port, transports: ['udp'] }).start(), e => e.key === 'Port {port} is already in use');
   a.stop();
 });
+
+test('end to end: several trunks, failover and duplicates are told apart', () => {
+  const { LoadEngine } = require('../load-engine');
+  const { Hist } = require('../hist');
+  const e = new LoadEngine();
+  Object.assign(e, { running: true, flags: {}, events: [], e2eAll: new Hist(), foAll: new Hist(), S: e._emptySec() });
+  e.e2e = { k: 4, mod: 1e4, seq: 0, pend: new Map(), sent: 0, reached: 0, dup: 0, unmatched: 0, trunks: [], fo: 0, foOk: 0, allRej: 0 };
+  const t0 = 1000;
+  for (const id of ['0001', '0002', '0003', '0004']) { e.e2e.pend.set(id, { t0, n: 0 }); e.e2e.sent++; }
+  e.addArrivals([
+    ['80001', t0 + 10, 0, 0],                             // taken by A
+    ['80002', t0 + 12, 0, 503], ['80002', t0 + 40, 1, 0], // A full → B took it: failover, 28 ms
+    ['80003', t0 + 15, 0, 503], ['80003', t0 + 30, 1, 486], // rejected everywhere
+    ['80004', t0 + 11, 0, 0], ['80004', t0 + 50, 1, 0],   // taken twice: a real duplicate
+    ['89999', t0 + 5, 0, 0],                              // not ours
+  ]);
+  const E = e.e2e;
+  assert.equal(E.reached, 4); assert.equal(E.fo, 1); assert.equal(E.dup, 1); assert.equal(E.allRej, 1); assert.equal(E.unmatched, 1);
+  assert.deepEqual(E.trunks, [{ att: 4, acc: 2, rej: 2 }, { att: 3, acc: 2, rej: 1 }]);
+  assert.equal(e.foAll.summary().p50 | 0, 28);
+  assert.equal(e.e2eAll.summary().n, 4, 'routing delay is measured once per call, on its first arrival');
+});
+
+test('vendor worker: two trunks on their own ports, arrivals carry trunk and outcome', async () => {
+  const v = fork(path.join(root, 'mock-worker.js'), [], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
+  const got = []; let stats = null;
+  const started = await new Promise((res, rej) => {
+    v.on('message', m => { if (m.type === 'started') res(m); else if (m.type === 'error') rej(new Error(m.text)); else if (m.type === 'arrivals') got.push(...m.list); else if (m.type === 'stats') stats = m.stats; });
+    v.send({ type: 'start', opts: { host: '127.0.0.1', transports: ['udp'], trunks: [{ port: 0, maxChannels: 1, answerMs: 0 }, { port: 0, answerMs: 0 }] } });
+  });
+  const uas = await Promise.all(started.ports.map(port => new SipUA({ host: '127.0.0.1', port }).open())); // one per trunk, like a PBX with two trunks
+  const calls = new Map(); for (const ua of uas) ua.handler = m => { const c = calls.get(m.callId); if (c) { c.onRequest(m); return true; } };
+  const call = (i, dst) => new Promise(r => { const c = new Call({ ua: uas[i], dst, user: 'u' }, { onEnd: k => r(k.status) }); calls.set(c.callId, c); c.start(); });
+  try {
+    assert.equal(started.ports.length, 2); assert.notEqual(started.ports[0], started.ports[1]);
+    call(0, '80001');                            // A takes it and keeps its only channel
+    await new Promise(r => setTimeout(r, 100));
+    assert.equal(await call(0, '80002'), 503);   // A is full
+    call(1, '80002');                            // the "PBX" fails over to B
+    await new Promise(r => setTimeout(r, 1300));
+    const mine = got.map(([u, , tr, code]) => [u, tr, code]);
+    assert.deepEqual(mine, [['80001', 0, 0], ['80002', 0, 503], ['80002', 1, 0]]);
+    assert.ok(stats && stats.trunks && stats.trunks.length === 2, 'stats per trunk');
+  } finally { uas.forEach(u => u.close()); v.kill(); }
+});
